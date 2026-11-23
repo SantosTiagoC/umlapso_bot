@@ -47,6 +47,9 @@ token_tiktok.json
 sessao_tiktok.json
 config/tiktok_session.json
 config/sessao_tiktok.json
+session_instagram.json
+config/session_instagram.json
+config/session_repost.json
 cookies.txt
 sessao_google_flow.json
 
