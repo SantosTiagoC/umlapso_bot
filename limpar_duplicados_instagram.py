@@ -382,10 +382,33 @@ def obter_credenciais_instagrapi(args) -> Tuple[Optional[str], Optional[str]]:
     return user, passwd
 
 
+def _aplicar_patch_publickeys():
+    """Garante que a obtenção de chaves de criptografia use endpoints atualizados."""
+    try:
+        from instagrapi.mixins.password import PasswordMixin
+        def patched_password_publickeys(self):
+            for endpoint in [
+                "https://i.instagram.com/api/v1/launcher/sync/",
+                "https://i.instagram.com/api/v1/qe/sync/",
+            ]:
+                try:
+                    resp = self.public.get(endpoint)
+                    k_id = resp.headers.get("ig-set-password-encryption-key-id")
+                    k_pub = resp.headers.get("ig-set-password-encryption-pub-key")
+                    if k_id and k_pub:
+                        return int(k_id), k_pub
+                except Exception:
+                    pass
+            raise RuntimeError("Não foi possível obter chaves de criptografia do Instagram.")
+        PasswordMixin.password_publickeys = patched_password_publickeys
+    except Exception:
+        pass
+
 def conectar_instagrapi(username: Optional[str], password: Optional[str]) -> Optional[Any]:
     """Inicializa o cliente instagrapi com suporte a reutilização de sessão salva."""
     try:
         from instagrapi import Client
+        _aplicar_patch_publickeys()
     except ImportError:
         print("[-] Biblioteca 'instagrapi' não instalada.")
         return None
