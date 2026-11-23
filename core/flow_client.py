@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-flow_client.py - Cliente unificado para geração de imagens no Google Flow (9:16 vertical).
-Suporta:
-1. Playwright Chromium com auto-instalação de binários e isolamento via ProcessLock.
-2. Anexo automático de imagens de referência ('assets/characters/leo_ref.png' e 'bip_ref.png').
-3. Geração de folha de referência oficial dos personagens via 'main.py --gerar-referencias'.
-4. Enquadramento seguro 9:16 (medium chest-up framing, headroom generoso, sem cortar rosto).
-5. Definição estrita do Bip (drone esférico sem braços e sem pernas).
-6. Retry automático de até 2 tentativas por cena antes de qualquer fallback.
+flow_client.py - Cliente para geração de imagens no Google Flow (9:16 vertical) para @um.lapso.
+Gera imagens cinematográficas e surreais sem dependência de personagens fixos ou elementos gráficos.
 """
 
 import os
@@ -17,7 +11,7 @@ import sys
 import time
 import subprocess
 import logging
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -29,10 +23,7 @@ if not logger.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 from core.lock import ProcessLock
-
-REF_CHAR_DIR = os.path.join(ROOT_DIR, "assets", "characters")
-LEO_REF_PATH = os.path.join(REF_CHAR_DIR, "leo_ref.png")
-BIP_REF_PATH = os.path.join(REF_CHAR_DIR, "bip_ref.png")
+from core.browser_utils import garantir_playwright_browsers, lancar_chromium_seguro
 
 def obter_projeto_flow_id(root_dir: str = ROOT_DIR) -> str:
     """Recupera o ID do projeto no Google Flow (.flow_project_id ou .env)."""
@@ -54,55 +45,34 @@ def obter_projeto_flow_id(root_dir: str = ROOT_DIR) -> str:
         except Exception:
             pass
 
-    return "ad9e40ce-b9d5-4aa8-9af4-b44634ee6324"
-
-from core.browser_utils import garantir_playwright_browsers, lancar_chromium_seguro
+    return "5240fab7-daab-46f2-85c9-de14684a1c2d"
 
 def sanitizar_prompt_flow(prompt: str) -> str:
     """
-    Higieniza e blinda o prompt para enquadramento 9:16 seguro.
-    Se a cena for de Leo, garante âncora visual e enquadramento seguro.
-    Se a cena for de cenário/ambiente ('no leo'), NÃO adiciona âncora do Leo nem enquadramento de rosto.
+    Higieniza e formata o prompt para o estilo cinematográfico @um.lapso em 9:16.
+    Foco em estética dark, surrealismo, mistério cósmico e ausência total de texto.
     """
     s = prompt or ""
-    # Substitui enquadramentos arriscados que cortam a cabeça ou rosto
-    s = re.sub(r"\b(extreme\s+close-?up|macro\s+shot|tight\s+crop|cropped\s+face|extreme\s+portrait)\b", "medium chest-up framing", s, flags=re.IGNORECASE)
-    # Remove marcas d'água, menções a texto
+    # Remove pedidos de texto, logos ou marcas d'água
     s = re.sub(r"\b(text|letters|watermark|logo|subtitles|caption|words|writing)\b", "", s, flags=re.IGNORECASE)
+    # Remove enquadramentos extremos que possam distorcer
+    s = re.sub(r"\b(extreme\s+close-?up|macro\s+shot)\b", "cinematic wide shot", s, flags=re.IGNORECASE)
     s = s.strip(" .,")
 
-    tem_leo = "leo" in s.lower() and "no leo" not in s.lower()
-    tem_bip = "bip" in s.lower() and "no bip" not in s.lower()
+    estilo_lapso = (
+        "cinematic dark surrealism, cosmic mystery, atmospheric sci-fi, "
+        "volumetric lighting, photorealistic 8k, Unreal Engine 5 render, "
+        "vertical 9:16 aspect ratio, high contrast, eerie and intriguing mood, "
+        "completely devoid of any text, letters, subtitles, watermarks, symbols or borders"
+    )
 
-    ancora_leo = "Leo, 24-year-old stylized 3D Pixar-style man with messy dark brown hair, wearing ONLY a matte black bomber jacket with glowing electric cyan trim, no glasses, medium chest-up framing, character fully centered inside vertical 9:16 frame with generous headroom above hair, face completely visible and uncropped"
-    bip_desc = "Bip, a small spherical floating metallic drone with a single glowing cyan digital screen face, NO arms, NO legs, floating in air beside Leo"
-    regras_negativas = "no random animals, no unrelated disasters, strictly matching the news topic, vertical 9:16 aspect ratio, 8k resolution, completely devoid of any text, letters, subtitles, watermarks, symbols or borders"
-
-    if tem_leo:
-        if "leo, 24-year-old" not in s.lower():
-            s = f"{ancora_leo}, {s}"
-        if "medium chest-up" not in s.lower() and "wide" not in s.lower() and "shot" not in s.lower():
-            s = f"{s}, medium chest-up framing, generous headroom above hair, face completely visible and uncropped"
-    else:
-        # Cenário 3D cinematográfico puro sem personagem humano
-        if "no leo" not in s.lower():
-            s = f"{s}, NO human close-up, NO Leo, wide environmental 3D scene"
-
-    if tem_bip and "no arms" not in s.lower():
-        s = f"{s}, {bip_desc}"
-
-    if "pixar" not in s.lower() and "blender" not in s.lower():
-        prompt_final = f"{s}, 3D Pixar and Blender animation render style, volumetric lighting, {regras_negativas}"
-    else:
-        prompt_final = f"{s}, {regras_negativas}"
-
+    prompt_final = f"{s}, {estilo_lapso}"
     prompt_final = re.sub(r',\s*,+', ',', prompt_final)
     prompt_final = re.sub(r'\s+', ' ', prompt_final).strip(' ,')
     return prompt_final
 
-
 class FlowClient:
-    """Cliente robusto para interagir com o Google Flow via Playwright com fallback e imagens de referência."""
+    """Cliente para interagir com o Google Flow via Playwright."""
 
     def __init__(self, session_path: Optional[str] = None, headless: Optional[bool] = None):
         self.root_dir = ROOT_DIR
@@ -116,88 +86,12 @@ class FlowClient:
         """Verifica se o arquivo de sessão existe e tem tamanho plausível."""
         return os.path.exists(self.session_path) and os.path.getsize(self.session_path) > 100
 
-    def obter_imagens_referencia(self, prompt: Optional[str] = None) -> List[str]:
-        """
-        Retorna caminhos existentes de folhas de referência dos personagens.
-        SÓ anexa leo_ref.png se 'leo' estiver explicitamente no prompt e não for 'no leo'.
-        SÓ anexa bip_ref.png se 'bip' estiver no prompt e não for 'no bip'.
-        """
-        refs = []
-        p_low = (prompt or "").lower()
-
-        quer_leo = True if prompt is None else ("leo" in p_low and "no leo" not in p_low)
-        quer_bip = True if prompt is None else ("bip" in p_low and "no bip" not in p_low)
-
-        if quer_leo and os.path.exists(LEO_REF_PATH) and os.path.getsize(LEO_REF_PATH) > 10000:
-            refs.append(LEO_REF_PATH)
-        if quer_bip and os.path.exists(BIP_REF_PATH) and os.path.getsize(BIP_REF_PATH) > 10000:
-            refs.append(BIP_REF_PATH)
-        return refs
-
-    def gerar_folha_referencia_personagens(self, force: bool = False) -> Dict[str, str]:
-        """
-        Gera e salva automaticamente a folha de referência oficial de Léo e Bip em assets/characters/
-        caso ainda não existam. Chamado via 'python main.py --gerar-referencias'.
-        """
-        os.makedirs(REF_CHAR_DIR, exist_ok=True)
-        resultados = {}
-
-        if not self.sessao_valida():
-            logger.warning("[!] Sessão do Google Flow não conectada. Conecte com 'python conectar_google.py'.")
-            return resultados
-
-        print("\n" + "=" * 65)
-        print("🎨 GERANDO FOLHAS DE REFERÊNCIA OFICIAIS DOS PERSONAGENS (FATOR X)")
-        print("=" * 65)
-
-        # 1. Referência Oficial de Léo
-        if force or not (os.path.exists(LEO_REF_PATH) and os.path.getsize(LEO_REF_PATH) > 20000):
-            print("[*] Renderizando imagem de referência oficial de Léo no Google Flow...")
-            prompt_leo = (
-                "Character reference sheet and official model turn-around of Leo, a 24-year-old stylized 3D Pixar and Blender animation style young man, "
-                "messy dark brown hair, expressive warm brown eyes, wearing ONLY a signature matte black bomber jacket with glowing electric cyan trim, no glasses. "
-                "Medium chest-up framing, character fully centered inside vertical 9:16 frame with generous headroom above hair, face completely visible and uncropped, "
-                "clean studio lighting, 3D Pixar and Blender animation render, volumetric cinematic lighting, vertical 9:16 framing, ultra sharp 8k, "
-                "neutral dark studio background, completely devoid of any text, letters, subtitles, watermarks, symbols or borders"
-            )
-            res_leo = self.gerar_imagem(prompt_leo, LEO_REF_PATH, retries=3)
-            if res_leo and os.path.exists(res_leo):
-                print(f"  [✔] Referência de Léo salva: {LEO_REF_PATH}")
-                resultados["leo"] = LEO_REF_PATH
-            else:
-                print("  [!] Falha ao gerar referência de Léo no Flow.")
-        else:
-            print(f"  [✓] Referência de Léo já existe: {LEO_REF_PATH}")
-            resultados["leo"] = LEO_REF_PATH
-
-        # 2. Referência Oficial do Drone Bip
-        if force or not (os.path.exists(BIP_REF_PATH) and os.path.getsize(BIP_REF_PATH) > 20000):
-            print("[*] Renderizando imagem de referência oficial de Bip no Google Flow...")
-            prompt_bip = (
-                "Character reference sheet of Bip, a cute small spherical floating 3D metallic drone with a single glowing cyan digital eye screen face, "
-                "NO arms, NO legs, clean floating hover pose, futuristic companion, 3D Pixar style render, ultra sharp 8k, volumetric lighting, "
-                "vertical 9:16 framing, neutral dark studio background, completely devoid of any text, letters, subtitles, watermarks, symbols or borders"
-            )
-            res_bip = self.gerar_imagem(prompt_bip, BIP_REF_PATH, retries=3)
-            if res_bip and os.path.exists(res_bip):
-                print(f"  [✔] Referência de Bip salva: {BIP_REF_PATH}")
-                resultados["bip"] = BIP_REF_PATH
-            else:
-                print("  [!] Falha ao gerar referência de Bip no Flow.")
-        else:
-            print(f"  [✓] Referência de Bip já existe: {BIP_REF_PATH}")
-            resultados["bip"] = BIP_REF_PATH
-
-        print("=" * 65 + "\n")
-        return resultados
-
     def gerar_imagem(self, prompt: str, output_path: str, timeout_segundos: int = 75, retries: int = 2) -> Optional[str]:
         """
-        Gera uma imagem no Google Flow com retentativa automática (retries=2) antes de qualquer fallback.
-        Garante que cada cena tenha tentativa prioritária de renderizar imagem inédita.
+        Gera uma imagem no Google Flow com retentativas automáticas.
         """
         if not self.sessao_valida():
-            logger.info("  [!] Sessão do Google Flow ausente ou vazia. Utilizando fallback de fundo escuro.")
+            logger.info("  [!] Sessão do Google Flow ausente ou vazia. Utilizando fallback.")
             return None
 
         prompt_sanitizado = sanitizar_prompt_flow(prompt)
@@ -206,7 +100,7 @@ class FlowClient:
             if res and os.path.exists(res) and os.path.getsize(res) > 25000:
                 return res
             if tentativa < retries:
-                logger.info(f"  [*] Tentativa {tentativa}/{retries} no Flow falhou. Retentando cena única em 2s...")
+                logger.info(f"  [*] Tentativa {tentativa}/{retries} no Flow falhou. Retentando em 2s...")
                 time.sleep(2)
         return None
 
@@ -214,12 +108,11 @@ class FlowClient:
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         project_url = f"https://flow.google.com/project/{self.project_id}"
 
-        # Usa lock para garantir isolamento de processos
         with ProcessLock("flow_generation.lock"):
             try:
                 from playwright.sync_api import sync_playwright
             except ImportError:
-                logger.warning("  [!] Playwright não importável. Usando fallback.")
+                logger.warning("  [!] Playwright não importável.")
                 return None
 
             browser_args = [
@@ -238,7 +131,6 @@ class FlowClient:
             try:
                 with sync_playwright() as p:
                     browser = lancar_chromium_seguro(p, headless=self.headless, args=browser_args)
-
                     context = browser.new_context(
                         storage_state=self.session_path,
                         viewport={"width": 1280, "height": 800},
@@ -251,15 +143,15 @@ class FlowClient:
                         page.goto(project_url, wait_until="domcontentloaded", timeout=45000)
                         page.wait_for_timeout(2500)
 
-                        # 1. Verifica se precisa de login
+                        # 1. Verifica login
                         for s in ['button:has-text("Fazer login")', 'button:has-text("Sign in")', 'a:has-text("Fazer login")']:
                             if page.locator(s).count() > 0 and page.locator(s).first.is_visible(timeout=800):
-                                logger.warning("  [!] Sessão do Google Flow expirada. Use 'python conectar_google.py'.")
+                                logger.warning("  [!] Sessão do Google Flow expirada. Execute 'python conectar_google.py'.")
                                 return None
 
                         # 2. Recuperação de 404
                         if "404" in page.url or "reason=project" in page.url:
-                            logger.info("  [*] Projeto 404. Tentando recuperar na raiz do Flow...")
+                            logger.info("  [*] Projeto 404. Recuperando na raiz do Flow...")
                             page.goto("https://flow.google.com/", wait_until="domcontentloaded", timeout=45000)
                             page.wait_for_timeout(2500)
                             btn_novo = page.locator('button:has-text("Novo projeto"), a:has-text("Novo projeto")').first
@@ -272,7 +164,7 @@ class FlowClient:
                                 with open(os.path.join(self.root_dir, ".flow_project_id"), "w", encoding="utf-8") as f_id:
                                     f_id.write(novo_id.strip())
 
-                        # 3. Fecha visualizador anterior se aberto
+                        # 3. Fecha modal anterior se aberto
                         try:
                             btn_fechar = page.locator('button:has-text("Concluir"), button:has(mat-icon:has-text("arrow_back"))').first
                             if btn_fechar.is_visible(timeout=1000):
@@ -314,19 +206,7 @@ class FlowClient:
                         srcs_antigos = obter_thumbs()
                         qtd_antes = len(srcs_antigos)
 
-                        # 6. Anexa imagens de referência oficiais (Ingredientes / Subject Reference) se existirem para esta cena
-                        refs_existentes = self.obter_imagens_referencia(prompt_sanitizado)
-                        if refs_existentes:
-                            try:
-                                file_input = page.locator('input[type="file"]').first
-                                if file_input.count() > 0:
-                                    file_input.set_input_files(refs_existentes)
-                                    page.wait_for_timeout(1000)
-                                    logger.info(f"  [+] {len(refs_existentes)} imagem(ns) de referência anexadas no Flow!")
-                            except Exception as e_ref:
-                                logger.debug(f"Aviso no anexo de referência: {e_ref}")
-
-                        # 7. Digita o prompt na caixa ProseMirror
+                        # 6. Digita o prompt na caixa ProseMirror
                         caixa = page.wait_for_selector('div[role="textbox"], div.ProseMirror', timeout=20000)
                         caixa.click()
                         page.keyboard.press("Control+A")
@@ -344,7 +224,7 @@ class FlowClient:
                         else:
                             page.keyboard.press("Enter")
 
-                        # 8. Aguarda nova miniatura renderizar
+                        # 7. Aguarda nova miniatura renderizar
                         nova_detectada = False
                         for _ in range(timeout_segundos):
                             page.wait_for_timeout(1000)
@@ -359,7 +239,7 @@ class FlowClient:
 
                         page.wait_for_timeout(2000)
 
-                        # 9. Localiza e clica na nova miniatura
+                        # 8. Localiza e clica na nova miniatura
                         thumbs = page.locator(seletor_thumb).all()
                         thumb_alvo = None
                         for t in thumbs:
@@ -444,12 +324,11 @@ class FlowClient:
         desativar_imagens: bool = False
     ) -> List[Dict[str, Any]]:
         """
-        Gera 1 imagem 3D única por cena para manter ritmo ágil de desenho animado (corte a cada 3.5-4s).
-        Se desativar_imagens=True ou se o Flow falhar em alguma cena, faz fallback para a última imagem válida
-        ou para o fundo dinâmico escuro, sem interromper o pipeline.
+        Gera 1 imagem 9:16 cinematográfica por cena (5 a 6 cenas).
+        Se desativar_imagens=True ou se o Flow falhar, faz fallback elegante.
         """
         if desativar_imagens or not self.sessao_valida():
-            logger.info("[*] Geração de imagens do Flow desativada ou sem sessão. Usando fundo dinâmico.")
+            logger.info("[*] Geração de imagens do Flow desativada ou sem sessão. Usando fallback.")
             for c in cenas:
                 c["bg_image"] = None
             return cenas
@@ -458,7 +337,7 @@ class FlowClient:
         total_cenas = len(cenas)
         limite_imgs = max_imagens if (max_imagens is not None and max_imagens > 0) else total_cenas
 
-        logger.info(f"[*] Gerando ilustrações 3D Pixar/Blender no Google Flow (1 imagem única por cena, até {limite_imgs})...")
+        logger.info(f"[*] Gerando ilustrações 9:16 no Google Flow (1 imagem única por cena, até {limite_imgs})...")
 
         imagem_atual = None
         ultima_imagem_valida = None
@@ -466,16 +345,15 @@ class FlowClient:
         for i, cena in enumerate(cenas):
             c_id = cena.get("id", i + 1)
             img_path = os.path.join(output_dir, f"cena_{c_id:02d}_flow.jpg")
-            prompt = cena.get("prompt_imagem_en") or f"3D Pixar character acting, scene for: {cena.get('texto_fala', '')}"
+            prompt = cena.get("prompt_imagem_en") or f"Cinematic surreal scene representing: {cena.get('texto_fala', '')}"
 
             if i < limite_imgs:
-                # Se a imagem já foi gerada com sucesso anteriormente nesta pasta, reaproveita
                 if os.path.exists(img_path) and os.path.getsize(img_path) > 25000:
                     logger.info(f"  [✓] Imagem existente encontrada para cena {c_id:02d}: {os.path.basename(img_path)}")
                     imagem_atual = os.path.abspath(img_path)
                     ultima_imagem_valida = imagem_atual
                 else:
-                    logger.info(f"  -> Solicitando imagem 3D única para cena {c_id:02d}/{total_cenas}...")
+                    logger.info(f"  -> Solicitando imagem cinematográfica para cena {c_id:02d}/{total_cenas}...")
                     gerou = self.gerar_imagem(prompt, img_path, retries=2)
                     if gerou and os.path.exists(gerou) and os.path.getsize(gerou) > 25000:
                         imagem_atual = os.path.abspath(gerou)
@@ -485,7 +363,7 @@ class FlowClient:
                             logger.info(f"  [*] Fallback da cena {c_id:02d}: utilizando imagem anterior válida.")
                             imagem_atual = ultima_imagem_valida
                         else:
-                            logger.info(f"  [*] Sem imagem ainda para cena {c_id:02d}; utilizando fundo dinâmico.")
+                            logger.info(f"  [*] Sem imagem ainda para cena {c_id:02d}; utilizando fallback.")
                             imagem_atual = None
             else:
                 imagem_atual = ultima_imagem_valida or imagem_atual
