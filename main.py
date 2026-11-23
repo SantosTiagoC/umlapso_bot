@@ -44,13 +44,16 @@ def preparar_ambiente():
 def limpar_temporarios():
     print("[*] A limpar mídias temporárias...")
     if os.path.exists('temp'):
-        for ficheiro in os.listdir('temp'):
-            caminho = os.path.join('temp', ficheiro)
-            if os.path.isfile(caminho):
-                try:
+        for item in os.listdir('temp'):
+            caminho = os.path.join('temp', item)
+            try:
+                if os.path.isfile(caminho):
                     os.remove(caminho)
-                except Exception:
-                    pass
+                elif os.path.isdir(caminho) and not item.startswith("."):
+                    import shutil
+                    shutil.rmtree(caminho, ignore_errors=True)
+            except Exception:
+                pass
 
 def extrair_cover_frame(video_path: str, output_image: str) -> bool:
     """Extrai o primeiro frame representativo do vídeo para cover e notificações."""
@@ -79,7 +82,8 @@ def rodar_pipeline_imagens(tema: str | None = None, sem_publicar: bool = False) 
     inicio_pipeline = time.time()
     timestamp = int(inicio_pipeline)
     dir_episodio = os.path.join("temp", f"ep_{timestamp}")
-    os.makedirs(dir_episodio, exist_ok=True)
+    dir_cenas = os.path.join(dir_episodio, "cenas_flow")
+    os.makedirs(dir_cenas, exist_ok=True)
 
     tema_final = obter_tema(tema)
 
@@ -103,14 +107,14 @@ def rodar_pipeline_imagens(tema: str | None = None, sem_publicar: bool = False) 
 
     try:
         with LockSimultaneo():
-            # 1. Roteiro (5 a 6 cenas, 70-90 palavras, singular 'você')
-            print("[+] Passo 1/5: Gerando roteiro cinematográfico em 5-6 cenas...")
+            # 1. Roteiro (8 a 10 cenas, 120-150 palavras, singular 'você')
+            print("[+] Passo 1/5: Gerando roteiro cinematográfico em 8-10 cenas...")
             roteiro = gerar_roteiro_cenas(tema_final)
 
-            # 2. Imagens no Google Flow
-            print("\n[+] Passo 2/5: Solicitando imagens 9:16 no Google Flow...")
+            # 2. Imagens no Google Flow em pasta isolada por episódio
+            print("\n[+] Passo 2/5: Solicitando imagens 9:16 inéditas no Google Flow...")
             flow = FlowClient()
-            cenas_com_imgs = flow.gerar_imagens_para_roteiro(roteiro["cenas"], dir_episodio)
+            cenas_com_imgs = flow.gerar_imagens_para_roteiro(roteiro["cenas"], dir_cenas)
             roteiro["cenas"] = cenas_com_imgs
 
             # 3. Locução e Timeline (sem Whisper, medição exata via ffprobe)
