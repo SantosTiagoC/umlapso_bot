@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 1080px;
+    height: 1920px;
+    overflow: hidden;
+    background: #060913;
+    font-family: 'Segoe UI', 'Roboto', 'Arial Black', sans-serif;
+    color: #FFFFFF;
+    position: relative;
+  }
+
+  /* 1. Imagem de Animação 3D em Tela Cheia 100% Imersiva */
+  .bg-photo-wrap {
+    position: absolute;
+    inset: -90px;
+    overflow: hidden;
+    display: none;
+    z-index: 2;
+  }
+  .bg-photo {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform-origin: center center;
+    will-change: transform;
+    filter: contrast(1.10) saturate(1.22) brightness(0.98);
+  }
+  /* Degradê sutil no topo e base - CENTRO 100% LIVRE E NÍTIDO */
+  .bg-photo-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      rgba(6, 9, 19, 0.72) 0%,
+      rgba(6, 9, 19, 0.30) 12%,
+      transparent 22%,
+      transparent 68%,
+      rgba(6, 9, 19, 0.65) 82%,
+      rgba(6, 9, 19, 0.94) 100%
+    );
+    pointer-events: none;
+  }
+
+  /* Vinheta Vermelha Pulsante para Alerta Crítico */
+  .vignette-alert {
+    position: absolute;
+    inset: 0;
+    box-shadow: inset 0 0 160px rgba(239, 68, 68, 0.85);
+    display: none;
+    pointer-events: none;
+    z-index: 3;
+    animation: pulseAlert 0.4s ease-in-out infinite alternate;
+  }
+  @keyframes pulseAlert {
+    from { opacity: 0.45; }
+    to { opacity: 0.95; }
+  }
+
+  /* Fundo de Grid Dinâmico (Fallback padrão se não houver foto) */
+  .bg-grid {
+    position: absolute;
+    inset: -120px;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.045) 2px, transparent 2px),
+      linear-gradient(90deg, rgba(255,255,255,0.045) 2px, transparent 2px);
+    background-size: 76px 76px;
+    z-index: 1;
+  }
+  .bg-glow {
+    position: absolute;
+    width: 960px;
+    height: 960px;
+    border-radius: 50%;
+    top: 290px;
+    left: 60px;
+    filter: blur(150px);
+    opacity: 0.38;
+    background: var(--accent, #38BDF8);
+    z-index: 1;
+  }
+
+  /* Barra de Progresso Superior */
+  .top-progress-wrap {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 14px;
+    background: rgba(255,255,255,0.14);
+    z-index: 30;
+  }
+  .top-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--accent, #38BDF8);
+    box-shadow: 0 0 16px var(--accent, #38BDF8);
+  }
+
+  /* Tag da Série / Canal Fator X */
+  .serie-pill {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%) scale(0.90);
+    background: rgba(10, 16, 32, 0.92);
+    border: 2px solid var(--accent, #38BDF8);
+    color: var(--accent, #38BDF8);
+    padding: 6px 30px;
+    border-radius: 999px;
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    box-shadow: 0 0 25px rgba(56, 189, 248, 0.45);
+    z-index: 25;
+    white-space: nowrap;
+    backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .serie-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #EF4444;
+    box-shadow: 0 0 12px #EF4444;
+    display: inline-block;
+    animation: blinkDot 1s ease-in-out infinite alternate;
+  }
+  @keyframes blinkDot {
+    from { opacity: 0.35; }
+    to { opacity: 1.0; }
+  }
+
+  /* Flash de Impacto nas Transições de Ato */
+  .impact-flash {
+    position: absolute;
+    inset: 0;
+    background: #FFFFFF;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 45;
+  }
+
+  /* Partículas Atmosféricas Sutis */
+  .particles-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 3;
+  }
+  .particle {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(56, 189, 248, 0.6) 0%, rgba(56, 189, 248, 0) 70%);
+    opacity: 0.32;
+    pointer-events: none;
+  }
+  .p1 { width: 140px; height: 140px; top: 15%; left: 8%; }
+  .p2 { width: 190px; height: 190px; top: 58%; right: 6%; }
+  .p3 { width: 130px; height: 130px; bottom: 28%; left: 16%; }
+  .p4 { width: 170px; height: 170px; top: 42%; left: 42%; }
+
+  /* 2. HUD Flutuante Inferior (Número 76px ou Split VS - APENAS QUANDO HOUVER DADO REAL) */
+  /* Posicionado em bottom: 430px logo acima das legendas: CENTRO E TOPO 100% LIMPOS PARA A ANIMAÇÃO */
+  .floating-hud {
+    position: absolute;
+    bottom: 430px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 940px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    z-index: 20;
+    pointer-events: none;
+  }
+  .floating-big-number {
+    font-size: 76px;
+    font-weight: 900;
+    letter-spacing: -1px;
+    color: #FACC15;
+    background: rgba(10, 16, 32, 0.88);
+    border: 3px solid rgba(255, 255, 255, 0.22);
+    border-radius: 28px;
+    padding: 12px 38px;
+    text-shadow:
+      0 2px 0 #CA8A04,
+      0 4px 0 #A16207,
+      0 8px 24px rgba(0, 0, 0, 0.95);
+    -webkit-text-stroke: 3px #060913;
+    filter: drop-shadow(0 15px 30px rgba(0,0,0,0.85));
+    text-align: center;
+    will-change: transform;
+    backdrop-filter: blur(12px);
+    display: none;
+    margin-bottom: 14px;
+  }
+  .hud-card {
+    background: rgba(10, 16, 32, 0.82);
+    border: 2px solid rgba(255,255,255,0.22);
+    border-radius: 32px;
+    padding: 24px 34px;
+    box-shadow: 0 25px 60px rgba(0,0,0,0.85);
+    backdrop-filter: blur(14px);
+    width: 100%;
+    text-align: center;
+    pointer-events: auto;
+  }
+  .vs-grid {
+    display: flex;
+    width: 100%;
+    gap: 20px;
+    align-items: stretch;
+  }
+  .vs-box {
+    flex: 1;
+    background: rgba(255,255,255,0.06);
+    border-radius: 24px;
+    padding: 20px 16px;
+    border: 2px solid rgba(255,255,255,0.12);
+  }
+  .vs-label {
+    font-size: 26px;
+    font-weight: 800;
+    opacity: 0.9;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .vs-val {
+    font-size: 46px;
+    font-weight: 900;
+    color: var(--accent, #38BDF8);
+    text-shadow: 0 4px 15px rgba(0,0,0,0.9);
+  }
+
+  .meter-wrap {
+    width: 100%;
+  }
+  .meter-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 32px;
+    font-weight: 900;
+    margin-bottom: 12px;
+  }
+  .meter-track {
+    width: 100%;
+    height: 42px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 999px;
+    overflow: hidden;
+    padding: 4px;
+  }
+  .meter-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent, #38BDF8), #FACC15);
+    box-shadow: 0 0 16px var(--accent, #38BDF8);
+  }
+
+  /* 4. Legendas Karaoke no Rodapé */
+  .captions-area {
+    position: absolute;
+    bottom: 220px;
+    left: 45px;
+    width: 990px;
+    text-align: center;
+    z-index: 30;
+  }
+  .caption-line {
+    display: inline-block;
+    background: rgba(5, 8, 18, 0.84);
+    border: 3px solid rgba(255, 255, 255, 0.18);
+    padding: 18px 36px;
+    border-radius: 28px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85);
+    max-width: 960px;
+    line-height: 1.25;
+    backdrop-filter: blur(8px);
+  }
+  .word {
+    display: inline-block;
+    margin: 0 12px;
+    padding: 2px 4px;
+    font-size: 54px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #FFFFFF;
+    text-shadow: 0 4px 10px rgba(0,0,0,0.9), 0 2px 4px #000000;
+  }
+  .word.active {
+    color: #FACC15;
+    transform: scale(1.12);
+    text-shadow: 0 0 20px rgba(250, 204, 21, 0.95), 0 4px 8px #000000;
+  }
+</style>
+</head>
+<body>
+  <!-- Barra de Progresso Superior -->
+  <div class="top-progress-wrap"><div id="vid-progress" class="top-progress-bar"></div></div>
+
+  <!-- Tag da Série / Canal Fator X -->
+  <div id="serie-pill" class="serie-pill">
+    <span class="serie-dot"></span>
+    <span id="serie-tag-text">FATOR X • RADAR</span>
+  </div>
+
+  <!-- Flash de Impacto nas Transições de Ato -->
+  <div id="impact-flash" class="impact-flash"></div>
+
+  <!-- Foto de fundo 3D tela cheia com Punch-in + Ken Burns + Camera Shake -->
+  <div id="bg-photo-wrap" class="bg-photo-wrap">
+    <img id="bg-photo" class="bg-photo" src="" alt="Cena 3D" />
+    <div class="bg-photo-overlay"></div>
+    <div id="vignette-alert" class="vignette-alert"></div>
+  </div>
+
+  <!-- Camada de Partículas Atmosféricas Sutis -->
+  <div class="particles-layer">
+    <div class="particle p1" id="p1"></div>
+    <div class="particle p2" id="p2"></div>
+    <div class="particle p3" id="p3"></div>
+    <div class="particle p4" id="p4"></div>
+  </div>
+
+  <!-- Fundo grid animado (fallback) -->
+  <div id="bg-grid" class="bg-grid"></div>
+  <div id="bg-glow" class="bg-glow"></div>
+
+  <!-- HUD Inferior Flutuante (Número 76px ou Split VS) - APENAS SE HOUVER DADO REAL NA NOTÍCIA -->
+  <div class="floating-hud">
+    <div id="big-number" class="floating-big-number"></div>
+    <div id="hud-container"></div>
+  </div>
+
+  <!-- Legendas Karaoke no Rodapé -->
+  <div class="captions-area" id="captions-area"></div>
+
+<script>
+  let TIMELINE = null;
+
+  window.initTimeline = function(data) {
+    TIMELINE = data;
+    document.documentElement.style.setProperty('--accent', data.tema_cor || '#38BDF8');
+    if (data.serie_tag) {
+      const tagEl = document.getElementById('serie-tag-text');
+      if (tagEl) tagEl.textContent = data.serie_tag;
+    }
+  };
+
+  function escapeHtml(str) {
+    return (str || '').replace(/[&<>"']/g, m => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[m]));
+  }
+
+  window.renderAtTime = function(ms) {
+    if (!TIMELINE) return;
+
+    const total = Math.max(1, TIMELINE.duracao_total_ms);
+    document.getElementById('vid-progress').style.width = Math.min(100, (ms / total) * 100) + '%';
+
+    const panGrid = Math.sin(ms / 1800) * 20;
+    document.getElementById('bg-grid').style.transform = `translate(${panGrid}px, ${panGrid * 0.6}px)`;
+
+    // Partículas flutuantes contínuas
+    const p1 = document.getElementById('p1');
+    const p2 = document.getElementById('p2');
+    if (p1) p1.style.transform = `translate(${Math.sin(ms / 2200) * 35}px, ${Math.cos(ms / 1900) * 25}px)`;
+    if (p2) p2.style.transform = `translate(${Math.cos(ms / 2500) * 30}px, ${Math.sin(ms / 2100) * 30}px)`;
+
+    const cenas = TIMELINE.cenas || [];
+    let cena = cenas[cenas.length - 1];
+    for (let i = 0; i < cenas.length; i++) {
+      if (ms >= cenas[i].inicio_ms && ms < cenas[i].fim_ms) {
+        cena = cenas[i];
+        break;
+      }
+    }
+
+    if (cena) {
+      const sceneDur = Math.max(1, cena.fim_ms - cena.inicio_ms);
+      const timeInSceneMs = Math.max(0, ms - cena.inicio_ms);
+      const t = Math.min(1, Math.max(0, timeInSceneMs / sceneDur));
+
+      // Flash rápido de impacto nas viradas de cena/ato
+      const flashEl = document.getElementById('impact-flash');
+      if (flashEl) {
+        if (timeInSceneMs < 80 && (cena.id === 1 || cena.ato === 'gancho_3s' || cena.sfx === 'impact')) {
+          flashEl.style.opacity = ((1 - (timeInSceneMs / 80)) * 0.40).toFixed(2);
+        } else {
+          flashEl.style.opacity = '0';
+        }
+      }
+
+      // 1. Movimento de Câmera 3D Cinematográfico: Punch-In (180ms) + Ken Burns Dinâmico
+      const photoWrap = document.getElementById('bg-photo-wrap');
+      const photoImg = document.getElementById('bg-photo');
+
+      if (cena.bg_image) {
+        photoWrap.style.display = 'block';
+        if (photoImg.getAttribute('data-src') !== cena.bg_image) {
+          photoImg.setAttribute('data-src', cena.bg_image);
+          photoImg.src = cena.bg_image;
+        }
+
+        // Punch-in rápido nos primeiros 180ms: 1.14 -> 1.04
+        let punchScale = 1.04;
+        if (timeInSceneMs < 180) {
+          punchScale = 1.14 - ((timeInSceneMs / 180) * 0.10);
+        }
+
+        // Ken Burns contínuo suave
+        const kenBurnsScale = 1.0 + (t * 0.10);
+        const totalScale = punchScale * kenBurnsScale;
+
+        // Pan alternado esquerda/direita por cena (sensação de corte de câmera)
+        const panDir = (cena.id % 2 === 0) ? 1 : -1;
+        let panX = Math.sin((cena.id * 1.6) + t * 0.8) * 28 * panDir;
+        let panY = Math.cos((cena.id * 1.2) + t * 0.6) * 18;
+
+        // Tremor de câmera (camera shake) suave nos primeiros 400ms do alerta_critico
+        const vigAlert = document.getElementById('vignette-alert');
+        if (cena.layout === 'alerta_critico') {
+          vigAlert.style.display = 'block';
+          if (timeInSceneMs < 400) {
+            const shake = (1 - (timeInSceneMs / 400)) * 14;
+            panX += Math.sin(timeInSceneMs * 0.14) * shake;
+            panY += Math.cos(timeInSceneMs * 0.18) * shake;
+          }
+        } else {
+          vigAlert.style.display = 'none';
+        }
+
+        photoImg.style.transform = `scale(${totalScale.toFixed(4)}) translate(${panX.toFixed(1)}px, ${panY.toFixed(1)}px)`;
+      } else {
+        photoWrap.style.display = 'none';
+      }
+
+      // 2. Elemento de Destaque Numérico (no HUD inferior, NUNCA sobre o rosto do personagem e NUNCA na Cena 1)
+      const bigNumEl = document.getElementById('big-number');
+      const isNumeroLayout = (cena.layout === 'numero_gigante' || cena.layout === 'lista_fatos');
+      const rawNum = (cena.destaque_numero || '').trim();
+      const temNumeroReal = (cena.id > 1) && isNumeroLayout && rawNum !== '' && rawNum !== '100%' && rawNum !== '100';
+      if (temNumeroReal) {
+        bigNumEl.style.display = 'inline-block';
+        bigNumEl.textContent = rawNum;
+        // Escala elástica suave
+        const bounceT = Math.min(1, timeInSceneMs / 320);
+        const elasticScale = bounceT < 0.7 ? (0.7 + (bounceT / 0.7) * 0.45) : (1.12 - ((bounceT - 0.7) / 0.3) * 0.12);
+        bigNumEl.style.transform = `scale(${elasticScale.toFixed(3)})`;
+      } else {
+        bigNumEl.style.display = 'none';
+      }
+
+      // 5. HUD Flutuante Inferior-Médio (Split VS / Barra de Progresso)
+      const hudContainer = document.getElementById('hud-container');
+      if (cena.layout === 'split_vs') {
+        hudContainer.innerHTML = `
+          <div class="hud-card">
+            <div class="vs-grid">
+              <div class="vs-box">
+                <div class="vs-label">${escapeHtml(cena.esquerda_label || '')}</div>
+                <div class="vs-val">${escapeHtml(cena.esquerda_valor || '')}</div>
+              </div>
+              <div class="vs-box">
+                <div class="vs-label">${escapeHtml(cena.direita_label || '')}</div>
+                <div class="vs-val">${escapeHtml(cena.direita_valor || '')}</div>
+              </div>
+            </div>
+          </div>`;
+      } else if (cena.layout === 'barra_progresso') {
+        const targetPct = Math.min(100, Math.max(5, Number(cena.barra_percentual) || 75));
+        const currPct = Math.round(targetPct * Math.min(1, t * 2.2));
+        const bLabel = (cena.barra_label || 'PROGRESSO').trim();
+        hudContainer.innerHTML = `
+          <div class="hud-card">
+            <div class="meter-wrap">
+              <div class="meter-header">
+                <span>${escapeHtml(bLabel)}</span>
+                <span>${currPct}%</span>
+              </div>
+              <div class="meter-track">
+                <div class="meter-fill" style="width:${currPct}%"></div>
+              </div>
+            </div>
+          </div>`;
+      } else {
+        hudContainer.innerHTML = '';
+      }
+    }
+
+    // 4. Legendas Karaoke no Rodapé (Busca direta com sustentação em micro-pausas)
+    const capsArea = document.getElementById('captions-area');
+    const legendas = TIMELINE.legendas || [];
+    let capAtiva = null;
+    for (let i = 0; i < legendas.length; i++) {
+      const b = legendas[i];
+      const proximoInicio = (i + 1 < legendas.length) ? legendas[i + 1].inicio_ms : (b.fim_ms + 100);
+      const margemFim = Math.min(b.fim_ms + 400, proximoInicio);
+      if (ms >= b.inicio_ms && ms < margemFim) {
+        capAtiva = b;
+        break;
+      }
+    }
+
+    if (capAtiva && capAtiva.palavras && capAtiva.palavras.length > 0) {
+      let activeIdx = -1;
+      for (let j = 0; j < capAtiva.palavras.length; j++) {
+        const w = capAtiva.palavras[j];
+        if (ms >= w.start_ms && ms < w.end_ms) {
+          activeIdx = j;
+          break;
+        } else if (ms >= w.start_ms) {
+          activeIdx = j;
+        }
+      }
+      if (activeIdx === -1) {
+        activeIdx = 0;
+      }
+      const spans = capAtiva.palavras.map((w, idx) => {
+        const isCurrent = (idx === activeIdx);
+        return `<span class="word ${isCurrent ? 'active' : ''}">${escapeHtml(w.word)}</span>`;
+      }).join(' ');
+      capsArea.innerHTML = `<div class="caption-line">${spans}</div>`;
+    } else {
+      capsArea.innerHTML = '';
+    }
+  };
+</script>
+</body>
+</html>
