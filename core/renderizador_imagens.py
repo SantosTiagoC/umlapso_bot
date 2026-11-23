@@ -3,8 +3,8 @@
 """
 renderizador_imagens.py - Renderizador 1080x1920 @ 30 FPS com Tela 100% Limpa para @um.lapso.
 - Captura frames JPEG do template HTML via Playwright e envia via pipe direto ao FFmpeg.
-- Mixa narração principal + trilha/SFX opcionais se disponíveis.
-- Tela 100% limpa (sem textos, sem HUDs, sem marcas d'água).
+- Mixa narração principal masterizada SEM cortar o áudio final (sem flag -shortest).
+- Sincronização 1 imagem por cena com crossfade e Ken Burns contínuo.
 - Salva o vídeo final em output/umlapso_{timestamp}.mp4.
 """
 
@@ -80,7 +80,10 @@ def _mixar_audio_video(
     caminho_saida_mp4: str,
     timeline: Optional[Dict[str, Any]] = None
 ):
-    """Mixa o vídeo mudo renderizado com a narração masterizada."""
+    """
+    Mixa o vídeo renderizado com a narração masterizada SEM a flag -shortest,
+    garantindo que nenhuma fala ou palavra final seja cortada.
+    """
     ffmpeg_bin = obter_caminho_ffmpeg()
     
     bgm_path = os.path.join(ROOT_DIR, "assets", "bgm.mp3")
@@ -96,7 +99,6 @@ def _mixar_audio_video(
             "-map", "0:v", "-map", "[aout]",
             "-c:v", "copy",
             "-c:a", "aac", "-b:a", "192k",
-            "-shortest",
             caminho_saida_mp4
         ]
     else:
@@ -106,21 +108,19 @@ def _mixar_audio_video(
             "-i", caminho_audio_mp3,
             "-c:v", "copy",
             "-c:a", "aac", "-b:a", "192k",
-            "-shortest",
             caminho_saida_mp4
         ]
 
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
-        logger.warning(f"Aviso na mixagem avançada ({e.stderr.decode('utf-8', errors='ignore')[:150]}). Usando cópia direta.")
+        logger.warning(f"Aviso na mixagem ({e.stderr.decode('utf-8', errors='ignore')[:150]}). Usando cópia direta.")
         fallback_cmd = [
             ffmpeg_bin, "-y",
             "-i", video_sem_audio,
             "-i", caminho_audio_mp3,
             "-c:v", "copy",
             "-c:a", "aac", "-b:a", "192k",
-            "-shortest",
             caminho_saida_mp4
         ]
         subprocess.run(fallback_cmd, check=True)
@@ -132,13 +132,42 @@ def renderizar_video_imagens(
     fps: int = 30
 ) -> str:
     """
-    Renderiza vídeo 1080x1920 a 30 FPS com movimento Ken Burns suave
-    a partir da timeline de imagens e une com o áudio final.
+    Renderiza vídeo 1080x1920 a 30 FPS com movimento Ken Burns suave e crossfade
+    a partir da timeline cumulativa de imagens e une com o áudio masterizado.
+    Garante que todas as cenas carreguem exclusivamente imagens estáticas válidas.
     """
     os.makedirs(os.path.dirname(os.path.abspath(caminho_saida_mp4)), exist_ok=True)
     garantir_playwright_browsers()
 
-    duracao_ms = int(timeline.get("duracao_total_ms", 30000))
+    # Validação e higienização estrita de mídias estáticas por cena
+    cenas = timeline.get("cenas", [])
+    ultima_img_valida = None
+    for i, c in enumerate(cenas):
+        bg = c.get("bg_image") or ""
+        # Converte para caminho de arquivo se for URI file://
+        caminho_disco = bg
+        if bg.startswith("file:///"):
+            caminho_disco = bg.replace("file:///", "").replace("/", os.sep)
+        elif bg.startswith("file://"):
+            caminho_disco = bg.replace("file://", "").replace("/", os.sep)
+
+        # Se for um arquivo de vídeo ou extensão inválida, descarta
+        ext = os.path.splitext(caminho_disco)[1].lower()
+        eh_imagem = ext in [".jpg", ".jpeg", ".png", ".webp"]
+
+        if caminho_disco and os.path.isfile(caminho_disco) and eh_imagem:
+            uri_valida = Path(os.path.abspath(caminho_disco)).resolve().as_uri()
+            c["bg_image"] = uri_valida
+            ultima_img_valida = uri_valida
+            logger.info(f"  [✔] Cena {c.get('id', i+1):02d}: Imagem estática validada -> {os.path.basename(caminho_disco)}")
+        else:
+            if ultima_img_valida:
+                logger.warning(f"  [!] Cena {c.get('id', i+1):02d}: Imagem inválida ou vídeo detectado ({bg}). Usando imagem anterior.")
+                c["bg_image"] = ultima_img_valida
+            else:
+                c["bg_image"] = None
+
+    duracao_ms = int(timeline.get("duracao_total_ms", 45000))
     total_frames = int((duracao_ms / 1000.0) * fps) + 1
 
     video_sem_audio = caminho_saida_mp4 + ".raw.mp4"
@@ -159,7 +188,7 @@ def renderizar_video_imagens(
         video_sem_audio
     ]
 
-    logger.info(f"[*] Renderizando {total_frames} frames ({duracao_ms / 1000:.1f}s) em 1080x1920 a {fps} FPS (tela 100% limpa)...")
+    logger.info(f"[*] Renderizando {total_frames} frames ({duracao_ms / 1000:.1f}s) em 1080x1920 @ {fps} FPS (tela 100% limpa)...")
     ffmpeg_proc = subprocess.Popen(ffmpeg_pipe_cmd, stdin=subprocess.PIPE)
 
     from playwright.sync_api import sync_playwright
@@ -189,8 +218,8 @@ def renderizar_video_imagens(
     ffmpeg_proc.stdin.close()
     ffmpeg_proc.wait()
 
-    # Mixagem com a narração masterizada
-    logger.info("[*] Mixando vídeo limpo com narração masterizada...")
+    # Mixagem com a narração masterizada (sem corte abrupto)
+    logger.info("[*] Mixando vídeo limpo com narração masterizada (áudio íntegro)...")
     _mixar_audio_video(video_sem_audio, caminho_audio_mp3, caminho_saida_mp4, timeline)
 
     # Limpeza do arquivo temporário mudo
