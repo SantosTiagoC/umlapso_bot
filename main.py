@@ -12,6 +12,11 @@ from core.editor_ffmpeg import montar_video_completo, obter_caminho_ffmpeg
 from core.publisher import postar_instagram_reels, postar_youtube_shorts, postar_tiktok, obter_ultimo_video_valido
 from core.lock import LockSimultaneo
 
+from core.roteiro_imagens import obter_tema, gerar_roteiro_cenas
+from core.flow_client import FlowClient
+from core.audio_imagens import gerar_audio_e_timeline
+from core.renderizador_imagens import renderizar_video_imagens
+
 def registrar_tema_historico(tema: str):
     """Registra o tema concluído em historico_temas.txt para evitar repetições."""
     if not tema:
@@ -61,7 +66,146 @@ def extrair_cover_frame(video_path: str, output_image: str) -> bool:
     except Exception:
         return False
 
-def rodar_pipeline(tema: str | None = None, pref_visual="veo") -> dict:
+def rodar_pipeline_imagens(tema: str | None = None, sem_publicar: bool = False) -> dict:
+    """
+    Pipeline econômico de imagens para @um.lapso:
+    - Consome estoque_temas.txt -> gera 5 a 6 cenas via GPT-4o-mini.
+    - Gera imagens cinematográficas 9:16 no Google Flow (1 por cena).
+    - Sintetiza áudio cena por cena via Edge-TTS masterizado (EQ + compressor + -16 LUFS).
+    - Renderiza vídeo 1080x1920 a 30 FPS com tela 100% limpa (sem textos/karaoke).
+    - Publica no Instagram, YouTube Shorts e TikTok (salvo se --sem-publicar).
+    """
+    preparar_ambiente()
+    inicio_pipeline = time.time()
+    timestamp = int(inicio_pipeline)
+    dir_episodio = os.path.join("temp", f"ep_{timestamp}")
+    os.makedirs(dir_episodio, exist_ok=True)
+
+    tema_final = obter_tema(tema)
+
+    video_final_path = f"output/umlapso_{timestamp}.mp4"
+    metadados_path = f"output/umlapso_{timestamp}_meta.json"
+    cover_path = f"temp/cover_{timestamp}.jpg"
+
+    print("\n" + "=" * 65)
+    print("=== INICIANDO PIPELINE @UM.LAPSO (MODO IMAGENS / TELA LIMPA) ===")
+    print(f"=== TEMA: {tema_final} ===")
+    print("=" * 65 + "\n")
+
+    resultado_execucao = {
+        "tema": tema_final,
+        "video": video_final_path,
+        "instagram": None,
+        "youtube": None,
+        "tiktok": None,
+        "status": "FALHA"
+    }
+
+    try:
+        with LockSimultaneo():
+            # 1. Roteiro (5 a 6 cenas, 70-90 palavras, singular 'você')
+            print("[+] Passo 1/5: Gerando roteiro cinematográfico em 5-6 cenas...")
+            roteiro = gerar_roteiro_cenas(tema_final)
+
+            # 2. Imagens no Google Flow
+            print("\n[+] Passo 2/5: Solicitando imagens 9:16 no Google Flow...")
+            flow = FlowClient()
+            cenas_com_imgs = flow.gerar_imagens_para_roteiro(roteiro["cenas"], dir_episodio)
+            roteiro["cenas"] = cenas_com_imgs
+
+            # 3. Locução e Timeline (sem Whisper, medição exata via ffprobe)
+            print("\n[+] Passo 3/5: Sintetizando áudio cena por cena com Edge-TTS masterizado...")
+            audio_final, timeline_path, timeline_data = gerar_audio_e_timeline(roteiro, dir_episodio)
+
+            # 4. Renderização com tela 100% limpa (Playwright + Ken Burns + FFmpeg)
+            print("\n[+] Passo 4/5: Renderizando vídeo cinematográfico 1080x1920 @ 30 FPS...")
+            renderizar_video_imagens(timeline_data, audio_final, video_final_path, fps=30)
+            extrair_cover_frame(video_final_path, cover_path)
+
+            # 5. Metadados e SEO
+            titulo = roteiro.get("titulo", tema_final)
+            descricao = roteiro.get("descricao", "")
+            legenda_seo = roteiro.get("legenda_seo", "#umlapso #misterio #curiosidades #universo")
+            metadados_completos = {
+                "titulo": titulo,
+                "descricao": descricao,
+                "hashtags": legenda_seo,
+                "tags": ["umlapso", "misterio", "curiosidades", "universo", "paradoxos"],
+                "ficheiro": video_final_path
+            }
+            with open(metadados_path, "w", encoding="utf-8") as f_meta:
+                json.dump(metadados_completos, f_meta, indent=4, ensure_ascii=False)
+            print(f"[+] Passo 5/5: Metadados gravados em {metadados_path}")
+
+            # 6. Distribuição / Publicação Multi-Plataforma
+            legenda_completa = f"{titulo}\n\n{descricao}\n\n{legenda_seo}".strip()
+            if sem_publicar:
+                print("\n[*] Flag --sem-publicar ativa. Pulando etapa de upload nas redes.")
+                resultado_execucao["status"] = "SUCESSO"
+                registrar_tema_historico(tema_final)
+                return resultado_execucao
+
+            print("\n[*] A iniciar a distribuição nas redes sociais...")
+            res_ig = None
+            try:
+                res_ig = postar_instagram_reels(video_final_path, legenda_completa)
+                resultado_execucao["instagram"] = res_ig
+            except Exception as ei:
+                print(f"[-] Falha no Instagram Reels: {ei}")
+
+            res_yt = None
+            try:
+                res_yt = postar_youtube_shorts(video_final_path, titulo, legenda_completa, metadados_completos['tags'])
+                resultado_execucao["youtube"] = res_yt
+            except Exception as ey:
+                print(f"[-] Falha no YouTube Shorts: {ey}")
+
+            res_tk = None
+            try:
+                res_tk = postar_tiktok(video_final_path, legenda_completa)
+                resultado_execucao["tiktok"] = res_tk
+            except Exception as et:
+                print(f"[-] Falha no TikTok: {et}")
+
+            # 7. Notificação Telegram
+            try:
+                from core.telegram_notifier import notificar_fim_ciclo
+                link_ig = (res_ig or {}).get("permalink")
+                link_yt = (res_yt or {}).get("url")
+                link_tk = "TikTok Studio" if (res_tk and res_tk.get("status") == "SUCCESS") else None
+                notificar_fim_ciclo(
+                    titulo=titulo,
+                    tema=tema_final,
+                    link_instagram=link_ig,
+                    link_youtube=link_yt,
+                    link_tiktok=link_tk,
+                    tempo_segundos=time.time() - inicio_pipeline,
+                    cover_frame=cover_path if os.path.exists(cover_path) else None,
+                )
+            except Exception as e_tg:
+                print(f"[*] Aviso notificação Telegram: {e_tg}")
+
+            resultado_execucao["status"] = "SUCESSO"
+            registrar_tema_historico(tema_final)
+
+            print(f"\n[!!!] OPERAÇÃO CONCLUÍDA COM SUCESSO [!!!]")
+            print(f"Vídeo em: {video_final_path}")
+            print(f"Metadados em: {metadados_path}\n")
+            return resultado_execucao
+
+    except RuntimeError as e_lock:
+        print(f"[-] Concorrência bloqueada: {e_lock}")
+        resultado_execucao["status"] = "BLOQUEADO"
+        return resultado_execucao
+    except Exception as e:
+        print(f"\n[-] FALHA NO PIPELINE DE IMAGENS: {e}")
+        resultado_execucao["status"] = f"ERRO: {e}"
+        return resultado_execucao
+    finally:
+        limpar_temporarios()
+
+def rodar_pipeline_veo(tema: str | None = None, pref_visual="veo", sem_publicar: bool = False) -> dict:
+    """Pipeline legado usando Veo para geração de vídeos curtos."""
     preparar_ambiente()
     inicio_pipeline = time.time()
     timestamp = int(inicio_pipeline)
@@ -77,7 +221,7 @@ def rodar_pipeline(tema: str | None = None, pref_visual="veo") -> dict:
     metadados_path = f"output/umlapso_{timestamp}_meta.json"
 
     print(f"\n=========================================")
-    print(f"=== INICIANDO PIPELINE UMLAPSO ===")
+    print(f"=== INICIANDO PIPELINE UMLAPSO (MODO VEO) ===")
     print(f"=== TEMA: {tema} ===")
     print(f"=========================================\n")
 
@@ -131,11 +275,16 @@ def rodar_pipeline(tema: str | None = None, pref_visual="veo") -> dict:
                 json.dump(metadados_completos, f, indent=4, ensure_ascii=False)
             print("[+] Passo 5/6: Metadados gerados e guardados.")
 
+            if sem_publicar:
+                print("\n[*] Flag --sem-publicar ativa. Pulando etapa de upload.")
+                resultado_execucao["status"] = "SUCESSO"
+                registrar_tema_historico(tema)
+                return resultado_execucao
+
             # 6. Publicação Multi-Plataforma
             print("\n[*] A iniciar a distribuição nas redes sociais...")
             legenda_completa = f"{metadados_completos['titulo']}\n\n{metadados_completos['descricao']}\n\n{metadados_completos['hashtags']}"
             
-            # 6.1 Publicação no Instagram Reels (API Oficial da Meta)
             res_ig = None
             try:
                 res_ig = postar_instagram_reels(video_final_path, legenda_completa)
@@ -143,7 +292,6 @@ def rodar_pipeline(tema: str | None = None, pref_visual="veo") -> dict:
             except Exception as ei:
                 print(f"[-] Falha no Instagram Reels: {ei}")
 
-            # 6.2 Publicação no YouTube Shorts (OAuth2 Oficial)
             res_yt = None
             try:
                 res_yt = postar_youtube_shorts(video_final_path, metadados_completos['titulo'], legenda_completa, metadados_completos['tags'])
@@ -151,7 +299,6 @@ def rodar_pipeline(tema: str | None = None, pref_visual="veo") -> dict:
             except Exception as ey:
                 print(f"[-] Falha no YouTube: {ey}")
                 
-            # 6.3 Publicação no TikTok (Automação Playwright com Sessão Persistente)
             res_tk = None
             try:
                 res_tk = postar_tiktok(video_final_path, legenda_completa)
@@ -161,7 +308,7 @@ def rodar_pipeline(tema: str | None = None, pref_visual="veo") -> dict:
             
             print("[+] Passo 6/6: Etapa de publicação concluída.")
 
-            # 7. Notificação Telegram com Capa e Botões Diretos
+            # 7. Notificação Telegram
             try:
                 from core.telegram_notifier import notificar_fim_ciclo
                 link_ig = (res_ig or {}).get("permalink")
@@ -200,9 +347,11 @@ def rodar_pipeline(tema: str | None = None, pref_visual="veo") -> dict:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline Autônomo do Umlapso Bot")
+    parser.add_argument("--modo", type=str, default="imagens", choices=["imagens", "veo"], help="Modo de geração: 'imagens' (padrão, rápido e econômico) ou 'veo' (vídeo gerado)")
     parser.add_argument("--publicar-ultimo-tiktok", action="store_true", help="Publica isoladamente o último vídeo gerado no TikTok sem produzir novo conteúdo")
     parser.add_argument("--tema", type=str, default=None, help="Define um tema customizado (se omitido, consome do estoque ou gera via IA)")
-    parser.add_argument("--pref-visual", type=str, default="veo", choices=["veo", "flow", "leonardo"], help="Motor de geração de vídeo/imagem")
+    parser.add_argument("--pref-visual", type=str, default="veo", choices=["veo", "flow", "leonardo"], help="Motor de geração visual no modo veo")
+    parser.add_argument("--sem-publicar", action="store_true", help="Gera o vídeo e metadados sem publicar nas redes sociais")
     parser.add_argument("--auto", action="store_true", help="Execução automática para Cron/Systemd")
 
     args = parser.parse_args()
@@ -230,4 +379,7 @@ if __name__ == "__main__":
             print(f"\n[-] Erro ao publicar último vídeo no TikTok: {e_pub}")
             sys.exit(1)
     else:
-        rodar_pipeline(tema=args.tema, pref_visual=args.pref_visual)
+        if args.modo == "imagens":
+            rodar_pipeline_imagens(tema=args.tema, sem_publicar=args.sem_publicar)
+        else:
+            rodar_pipeline_veo(tema=args.tema, pref_visual=args.pref_visual, sem_publicar=args.sem_publicar)
