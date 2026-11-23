@@ -13,13 +13,25 @@
     position: relative;
   }
 
-  /* Imagem 9:16 Tela Cheia 100% Limpa e Cinematográfica */
-  .bg-photo-wrap {
+  /* Contêiner das Camadas de Cena */
+  .scenes-container {
     position: absolute;
     inset: -60px;
     overflow: hidden;
     z-index: 2;
   }
+
+  /* Camada individual de cada cena */
+  .scene-layer {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    pointer-events: none;
+    will-change: opacity;
+  }
+
   .bg-photo {
     width: 100%;
     height: 100%;
@@ -43,7 +55,7 @@
       rgba(4, 6, 14, 0.70) 100%
     );
     pointer-events: none;
-    z-index: 3;
+    z-index: 8;
   }
 
   /* Vinheta escura cinematográfica nas bordas */
@@ -52,17 +64,7 @@
     inset: 0;
     box-shadow: inset 0 0 140px rgba(0, 0, 0, 0.85), inset 0 0 260px rgba(0, 0, 0, 0.45);
     pointer-events: none;
-    z-index: 4;
-  }
-
-  /* Flash ultra sutil de corte entre cenas (40ms) */
-  .scene-flash {
-    position: absolute;
-    inset: 0;
-    background: #FFFFFF;
-    opacity: 0;
-    pointer-events: none;
-    z-index: 10;
+    z-index: 9;
   }
 
   /* Partículas cósmicas sutis de fundo */
@@ -71,7 +73,7 @@
     inset: 0;
     pointer-events: none;
     overflow: hidden;
-    z-index: 5;
+    z-index: 10;
   }
   .particle {
     position: absolute;
@@ -86,15 +88,12 @@
 </style>
 </head>
 <body>
-  <!-- Foto de fundo em tela cheia com Ken Burns suave -->
-  <div id="bg-photo-wrap" class="bg-photo-wrap">
-    <img id="bg-photo" class="bg-photo" src="" alt="Cena" />
-    <div class="bg-photo-overlay"></div>
-    <div class="vignette-cinematic"></div>
-  </div>
+  <!-- Contêiner dinâmico de cenas com camadas pré-carregadas -->
+  <div id="scenes-container" class="scenes-container"></div>
 
-  <!-- Micro-flash de transição -->
-  <div id="scene-flash" class="scene-flash"></div>
+  <!-- Camadas cinematográficas de overlay e vinheta -->
+  <div class="bg-photo-overlay"></div>
+  <div class="vignette-cinematic"></div>
 
   <!-- Partículas cósmicas suaves -->
   <div class="particles-layer">
@@ -105,9 +104,30 @@
 
 <script>
   let TIMELINE = null;
+  const CROSSFADE_MS = 400; // 0.4s de crossfade suave entre trocas de cena
 
   window.initTimeline = function(data) {
     TIMELINE = data;
+    const container = document.getElementById('scenes-container');
+    container.innerHTML = '';
+
+    const cenas = data.cenas || [];
+    cenas.forEach((cena, i) => {
+      const layer = document.createElement('div');
+      layer.className = 'scene-layer';
+      layer.id = 'scene-layer-' + i;
+      layer.style.zIndex = i + 1;
+      layer.style.opacity = (i === 0) ? '1' : '0';
+
+      const img = document.createElement('img');
+      img.className = 'bg-photo';
+      img.id = 'scene-img-' + i;
+      if (cena.bg_image) {
+        img.src = cena.bg_image;
+      }
+      layer.appendChild(img);
+      container.appendChild(layer);
+    });
   };
 
   window.renderAtTime = function(ms) {
@@ -124,47 +144,55 @@
     const cenas = TIMELINE.cenas || [];
     if (cenas.length === 0) return;
 
-    let cena = cenas[cenas.length - 1];
-    let cenaIndex = cenas.length - 1;
+    // Localiza a cena ativa para o timestamp ms
+    let idx = 0;
     for (let i = 0; i < cenas.length; i++) {
       if (ms >= cenas[i].inicio_ms && ms < cenas[i].fim_ms) {
-        cena = cenas[i];
-        cenaIndex = i;
+        idx = i;
         break;
+      }
+      if (i === cenas.length - 1 && ms >= cenas[i].fim_ms) {
+        idx = i;
       }
     }
 
-    if (cena) {
-      const sceneDur = Math.max(1, cena.fim_ms - cena.inicio_ms);
-      const timeInSceneMs = Math.max(0, ms - cena.inicio_ms);
-      const t = Math.min(1, Math.max(0, timeInSceneMs / sceneDur));
+    const cena = cenas[idx];
+    const sceneDur = Math.max(1, cena.fim_ms - cena.inicio_ms);
+    const timeInScene = Math.max(0, ms - cena.inicio_ms);
+    const t = Math.min(1, Math.max(0, timeInScene / sceneDur));
 
-      // Micro-flash rápido (60ms) na transição de cena
-      const flashEl = document.getElementById('scene-flash');
-      if (flashEl) {
-        if (timeInSceneMs < 60 && cenaIndex > 0) {
-          flashEl.style.opacity = ((1 - (timeInSceneMs / 60)) * 0.25).toFixed(2);
+    // Ken Burns visível e suave em TODAS as cenas (inclusive Cena 1):
+    // Alterna zoom-in (1.0 -> 1.12) e zoom-out (1.12 -> 1.0) com leve pan
+    const isEven = (idx % 2 === 0);
+    const scale = isEven ? (1.00 + (t * 0.12)) : (1.12 - (t * 0.12));
+    const panX = isEven ? ((t - 0.5) * 22) : ((t - 0.5) * -22);
+    const panY = isEven ? ((t - 0.5) * -16) : ((t - 0.5) * 16);
+
+    const activeImg = document.getElementById('scene-img-' + idx);
+    if (activeImg) {
+      activeImg.style.transform = `scale(${scale.toFixed(4)}) translate(${panX.toFixed(1)}px, ${panY.toFixed(1)}px)`;
+    }
+
+    // Crossfade suave de 0.4s (400ms) nas transições de cena
+    const totalCenas = cenas.length;
+    for (let j = 0; j < totalCenas; j++) {
+      const layerEl = document.getElementById('scene-layer-' + j);
+      if (!layerEl) continue;
+
+      if (j === idx) {
+        if (idx > 0 && timeInScene < CROSSFADE_MS) {
+          // Fade-in da cena atual
+          const opacityIn = (timeInScene / CROSSFADE_MS).toFixed(3);
+          layerEl.style.opacity = opacityIn;
         } else {
-          flashEl.style.opacity = '0';
+          layerEl.style.opacity = '1';
         }
-      }
-
-      // Ken Burns alternado elegante (zoom-in / zoom-out)
-      const photoImg = document.getElementById('bg-photo');
-      if (cena.bg_image) {
-        if (photoImg.getAttribute('data-src') !== cena.bg_image) {
-          photoImg.setAttribute('data-src', cena.bg_image);
-          photoImg.src = cena.bg_image;
-        }
-
-        const isEven = (cenaIndex % 2 === 0);
-        let scale = isEven ? (1.02 + (t * 0.08)) : (1.10 - (t * 0.08));
-        const panDirX = isEven ? 1 : -1;
-        const panDirY = isEven ? -1 : 1;
-        const panX = Math.sin((cenaIndex * 1.5) + (t * 0.6)) * 16 * panDirX;
-        const panY = Math.cos((cenaIndex * 1.1) + (t * 0.5)) * 12 * panDirY;
-
-        photoImg.style.transform = `scale(${scale.toFixed(4)}) translate(${panX.toFixed(1)}px, ${panY.toFixed(1)}px)`;
+      } else if (j === idx - 1 && timeInScene < CROSSFADE_MS) {
+        // Fade-out da cena anterior
+        const opacityOut = (1 - (timeInScene / CROSSFADE_MS)).toFixed(3);
+        layerEl.style.opacity = opacityOut;
+      } else {
+        layerEl.style.opacity = '0';
       }
     }
   };
