@@ -1,0 +1,18 @@
+[Unit]
+Description=Timer periodico para o Umlapso Bot (Horarios Estrategicos)
+After=network.target
+
+[Timer]
+# Horarios estrategicos fora da janela 13h–17h:
+# 1. Manha : 08:30
+# 2. Almoco: 12:30 (antes da janela das 13h)
+# 3. Noite : 19:30
+OnCalendar=*-*-* 08:30:00
+OnCalendar=*-*-* 12:30:00
+OnCalendar=*-*-* 19:30:00
+RandomizedDelaySec=25min
+Persistent=true
+Unit=umlapso.service
+
+[Install]
+WantedBy=timers.target

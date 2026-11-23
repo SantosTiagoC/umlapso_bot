@@ -1,0 +1,58 @@
+# Ambientes Virtuais Python
+venv/
+.venv/
+env/
+ENV/
+
+# Caches e compilação Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Mídias e Arquivos Gerados
+temp/*
+!temp/.gitkeep
+output/*
+!output/.gitkeep
+logs/*
+!logs/.gitkeep
+logs/debug_*.png
+logs/*.png
+*.lock
+.*.lock
+.umlapso.lock
+.scheduler.lock
+.repost.lock
+agendamento_estado.json
+
+# Binários e Arquivos Compactados
+ffmpeg.exe
+*.exe
+*.dll
+*.zip
+
+# Perfis de Navegador (Contêm cookies de sessão ativos)
+perfil_chrome_bot/
+perfil_chrome_tiktok/
+
+# Credenciais e Sessões Sensíveis
+.env
+client_secrets.json
+client_secret.json
+credenciais.json
+token_youtube.json
+token_tiktok.json
+sessao_tiktok.json
+config/tiktok_session.json
+config/sessao_tiktok.json
+cookies.txt
+sessao_google_flow.json
+
+credenciais.json
+client_secrets.json
+sessao_tiktok.json
+.env
+*.exe
+*.zip
