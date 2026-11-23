@@ -2,16 +2,19 @@
 # -*- coding: utf-8 -*-
 """
 flow_client.py - Cliente para geração de imagens no Google Flow (9:16 vertical) para @um.lapso.
-Gera imagens cinematográficas e surreais sem dependência de personagens fixos ou elementos gráficos.
+- Snapshot estrito da galeria antes de submeter o prompt para não baixar imagens antigas.
+- Validação por SHA-256 impedindo duplicação de imagens entre cenas da mesma execução.
+- Log detalhado com nome do arquivo, tamanho em KB e SHA-256 (8 primeiros caracteres).
 """
 
 import os
 import re
 import sys
 import time
+import hashlib
 import subprocess
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -24,6 +27,14 @@ if not logger.handlers:
 
 from core.lock import ProcessLock
 from core.browser_utils import garantir_playwright_browsers, lancar_chromium_seguro
+
+def calcular_sha256(caminho_arquivo: str) -> str:
+    """Calcula o hash SHA-256 de um arquivo no disco."""
+    h = hashlib.sha256()
+    with open(caminho_arquivo, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
 
 def obter_projeto_flow_id(root_dir: str = ROOT_DIR) -> str:
     """Recupera o ID do projeto no Google Flow (.flow_project_id ou .env)."""
@@ -72,7 +83,7 @@ def sanitizar_prompt_flow(prompt: str) -> str:
     return prompt_final
 
 class FlowClient:
-    """Cliente para interagir com o Google Flow via Playwright."""
+    """Cliente para interagir com o Google Flow via Playwright com proteção anti-duplicidade."""
 
     def __init__(self, session_path: Optional[str] = None, headless: Optional[bool] = None):
         self.root_dir = ROOT_DIR
@@ -82,13 +93,17 @@ class FlowClient:
         env_headless = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() in ("true", "1", "yes")
         self.headless = env_headless if headless is None else headless
 
+        # Registros da sessão para impedir download de imagens repetidas
+        self.urls_baixadas_sessao: Set[str] = set()
+        self.hashes_baixados_sessao: Set[str] = set()
+
     def sessao_valida(self) -> bool:
         """Verifica se o arquivo de sessão existe e tem tamanho plausível."""
         return os.path.exists(self.session_path) and os.path.getsize(self.session_path) > 100
 
     def gerar_imagem(self, prompt: str, output_path: str, timeout_segundos: int = 75, retries: int = 2) -> Optional[str]:
         """
-        Gera uma imagem no Google Flow com retentativas automáticas.
+        Gera uma imagem no Google Flow com retentativas automáticas e garantia de unicidade.
         """
         if not self.sessao_valida():
             logger.info("  [!] Sessão do Google Flow ausente ou vazia. Utilizando fallback.")
@@ -100,7 +115,7 @@ class FlowClient:
             if res and os.path.exists(res) and os.path.getsize(res) > 25000:
                 return res
             if tentativa < retries:
-                logger.info(f"  [*] Tentativa {tentativa}/{retries} no Flow falhou. Retentando em 2s...")
+                logger.info(f"  [*] Tentativa {tentativa}/{retries} no Flow falhou ou repetiu hash. Retentando em 2s...")
                 time.sleep(2)
         return None
 
@@ -178,11 +193,14 @@ class FlowClient:
                             btn_img = page.locator("button:has-text('Imagens'), button:has(mat-icon:has-text('image'))").first
                             if btn_img.is_visible(timeout=2000):
                                 btn_img.click()
-                                page.wait_for_timeout(800)
+                                page.wait_for_timeout(1000)
                         except Exception:
                             pass
 
-                        # 5. Mapeia miniaturas pré-existentes
+                        # Aguarda estabilização da galeria existente
+                        page.wait_for_timeout(3000)
+
+                        # 5. Snapshot rigoroso de todos os thumbnails já existentes
                         seletor_thumb = "img.image, img[src*='/asb/']"
 
                         def eh_thumb_valido(src: str, cls: str = "") -> bool:
@@ -203,8 +221,8 @@ class FlowClient:
                             except Exception:
                                 return set()
 
-                        srcs_antigos = obter_thumbs()
-                        qtd_antes = len(srcs_antigos)
+                        # Snapshot inicial + histórico de URLs já baixadas na sessão
+                        snapshot_srcs = obter_thumbs() | self.urls_baixadas_sessao
 
                         # 6. Digita o prompt na caixa ProseMirror
                         caixa = page.wait_for_selector('div[role="textbox"], div.ProseMirror', timeout=20000)
@@ -224,37 +242,36 @@ class FlowClient:
                         else:
                             page.keyboard.press("Enter")
 
-                        # 7. Aguarda nova miniatura renderizar
+                        # 7. Aguarda miniatura estritamente nova (não presente no snapshot nem na sessão)
                         nova_detectada = False
+                        thumb_alvo = None
+                        src_alvo = None
+
                         for _ in range(timeout_segundos):
                             page.wait_for_timeout(1000)
                             srcs_atuais = obter_thumbs()
-                            if len(srcs_atuais) > qtd_antes or (srcs_atuais - srcs_antigos):
-                                nova_detectada = True
-                                break
+                            novos_srcs = (srcs_atuais - snapshot_srcs) - self.urls_baixadas_sessao
+                            if novos_srcs:
+                                thumbs = page.locator(seletor_thumb).all()
+                                for t in thumbs:
+                                    try:
+                                        src = t.get_attribute("src") or ""
+                                        cls = t.get_attribute("class") or ""
+                                        if eh_thumb_valido(src, cls) and src in novos_srcs:
+                                            thumb_alvo = t
+                                            src_alvo = src
+                                            nova_detectada = True
+                                            break
+                                    except Exception:
+                                        pass
+                                if nova_detectada:
+                                    break
 
-                        if not nova_detectada:
-                            logger.warning("  [-] Timeout aguardando renderização no Google Flow.")
+                        if not nova_detectada or not thumb_alvo:
+                            logger.warning("  [-] Nenhuma imagem estritamente nova detectada no Google Flow.")
                             return None
 
                         page.wait_for_timeout(2000)
-
-                        # 8. Localiza e clica na nova miniatura
-                        thumbs = page.locator(seletor_thumb).all()
-                        thumb_alvo = None
-                        for t in thumbs:
-                            try:
-                                src = t.get_attribute("src") or ""
-                                cls = t.get_attribute("class") or ""
-                                if eh_thumb_valido(src, cls) and src not in srcs_antigos:
-                                    thumb_alvo = t
-                                    break
-                            except Exception:
-                                pass
-
-                        if not thumb_alvo:
-                            logger.warning("  [-] Miniatura da nova imagem não localizada.")
-                            return None
 
                         # Pré-captura URL em alta resolução (Fife 2048px)
                         src_fife = None
@@ -303,8 +320,23 @@ class FlowClient:
                         except Exception:
                             pass
 
+                        # Validação pós-download: tamanho e SHA-256 anti-duplicidade
                         if salvo and os.path.exists(output_path) and os.path.getsize(output_path) > 25000:
-                            logger.info(f"  [+] Imagem Flow salva: {os.path.basename(output_path)} ({os.path.getsize(output_path)} bytes)")
+                            sha = calcular_sha256(output_path)
+                            if sha in self.hashes_baixados_sessao:
+                                logger.warning(f"  [!] Alerta: Imagem repetida detectada (SHA-256 {sha[:8]} já baixado nesta execução). Rejeitando.")
+                                try:
+                                    os.remove(output_path)
+                                except Exception:
+                                    pass
+                                return None
+
+                            self.hashes_baixados_sessao.add(sha)
+                            if src_alvo:
+                                self.urls_baixadas_sessao.add(src_alvo)
+
+                            tamanho_kb = os.path.getsize(output_path) / 1024
+                            logger.info(f"  [+] Imagem única salva: {os.path.basename(output_path)} | {tamanho_kb:.1f} KB | SHA-256: {sha[:8]}")
                             return output_path
                         return None
 
@@ -324,8 +356,8 @@ class FlowClient:
         desativar_imagens: bool = False
     ) -> List[Dict[str, Any]]:
         """
-        Gera 1 imagem 9:16 cinematográfica por cena (5 a 6 cenas).
-        Se desativar_imagens=True ou se o Flow falhar, faz fallback elegante.
+        Gera dinamicamente 1 imagem 9:16 cinematográfica inédita para cada cena do roteiro (8 a 10 cenas),
+        salvando na pasta isolada do episódio e convertendo em URI segura para o Playwright.
         """
         if desativar_imagens or not self.sessao_valida():
             logger.info("[*] Geração de imagens do Flow desativada ou sem sessão. Usando fallback.")
@@ -337,7 +369,7 @@ class FlowClient:
         total_cenas = len(cenas)
         limite_imgs = max_imagens if (max_imagens is not None and max_imagens > 0) else total_cenas
 
-        logger.info(f"[*] Gerando ilustrações 9:16 no Google Flow (1 imagem única por cena, até {limite_imgs})...")
+        logger.info(f"[*] Gerando ilustrações 9:16 no Google Flow (1 imagem única por cena, {limite_imgs} cenas)...")
 
         imagem_atual = None
         ultima_imagem_valida = None
@@ -348,23 +380,28 @@ class FlowClient:
             prompt = cena.get("prompt_imagem_en") or f"Cinematic surreal scene representing: {cena.get('texto_fala', '')}"
 
             if i < limite_imgs:
-                if os.path.exists(img_path) and os.path.getsize(img_path) > 25000:
-                    logger.info(f"  [✓] Imagem existente encontrada para cena {c_id:02d}: {os.path.basename(img_path)}")
-                    imagem_atual = os.path.abspath(img_path)
+                # Remove qualquer arquivo anterior para não reaproveitar resíduo de teste passado
+                if os.path.exists(img_path):
+                    try:
+                        os.remove(img_path)
+                    except Exception:
+                        pass
+
+                logger.info(f"  -> Solicitando imagem cinematográfica inédita para cena {c_id:02d}/{total_cenas}...")
+                gerou = self.gerar_imagem(prompt, img_path, retries=2)
+                if gerou and os.path.exists(gerou) and os.path.getsize(gerou) > 25000:
+                    sha = calcular_sha256(gerou)
+                    tamanho_kb = os.path.getsize(gerou) / 1024
+                    logger.info(f"  [✔] Cena {c_id:02d} OK: {os.path.basename(gerou)} | {tamanho_kb:.1f} KB | SHA-256: {sha[:8]}")
+                    imagem_atual = Path(os.path.abspath(gerou)).resolve().as_uri()
                     ultima_imagem_valida = imagem_atual
                 else:
-                    logger.info(f"  -> Solicitando imagem cinematográfica para cena {c_id:02d}/{total_cenas}...")
-                    gerou = self.gerar_imagem(prompt, img_path, retries=2)
-                    if gerou and os.path.exists(gerou) and os.path.getsize(gerou) > 25000:
-                        imagem_atual = os.path.abspath(gerou)
-                        ultima_imagem_valida = imagem_atual
+                    if ultima_imagem_valida:
+                        logger.warning(f"  [!] Fallback da cena {c_id:02d}: utilizando imagem anterior válida.")
+                        imagem_atual = ultima_imagem_valida
                     else:
-                        if ultima_imagem_valida:
-                            logger.info(f"  [*] Fallback da cena {c_id:02d}: utilizando imagem anterior válida.")
-                            imagem_atual = ultima_imagem_valida
-                        else:
-                            logger.info(f"  [*] Sem imagem ainda para cena {c_id:02d}; utilizando fallback.")
-                            imagem_atual = None
+                        logger.info(f"  [*] Sem imagem ainda para cena {c_id:02d}; utilizando fallback.")
+                        imagem_atual = None
             else:
                 imagem_atual = ultima_imagem_valida or imagem_atual
 
