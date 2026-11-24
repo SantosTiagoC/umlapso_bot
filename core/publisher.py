@@ -6,10 +6,11 @@ from urllib.parse import urlparse, parse_qs
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(ROOT_DIR, ".env"), override=True)
+
 from core.anti_duplicidade import verificar_duplicidade, registrar_publicacao_sucesso
 from core.tiktok_publisher import TikTokPublisher
-
-load_dotenv()
 
 def validar_video_para_publicacao(video_path: str) -> int:
     """
@@ -108,13 +109,76 @@ def obter_ultimo_video_valido(pasta_output: str = "output") -> tuple[str, dict]:
     print(f"[*] Vídeo final válido identificado: {video_escolhido} ({os.path.getsize(video_escolhido)} bytes)")
     return video_escolhido, metadados
 
+def resolver_url_publica(caminho_local: str) -> str:
+    """Gera uma URL pública direta HTTPS para a Meta Graph API baixar o vídeo."""
+    base_url = os.getenv("PUBLIC_MEDIA_URL_BASE", "").strip().rstrip("/")
+    if base_url:
+        try:
+            r = requests.get(base_url, timeout=3)
+            if r.status_code < 500:
+                rel_path = os.path.relpath(caminho_local, ROOT_DIR).replace("\\", "/")
+                return f"{base_url}/{rel_path}"
+        except Exception:
+            pass
+
+    nome_arquivo = os.path.basename(caminho_local)
+    mime_type = "video/mp4"
+
+    # Uploader 1: Uguu.se
+    try:
+        with open(caminho_local, "rb") as f:
+            resp = requests.post(
+                "https://uguu.se/upload",
+                files={"files[]": (nome_arquivo, f, mime_type)},
+                timeout=120
+            )
+        if resp.status_code == 200:
+            dados = resp.json()
+            if dados.get("success") and dados.get("files"):
+                url = dados["files"][0].get("url")
+                if url and url.startswith("http"):
+                    return url
+    except Exception as e:
+        print(f"  [-] Uguu fallback ({e}). Tentando 0x0.st...")
+
+    # Uploader 2: 0x0.st
+    try:
+        with open(caminho_local, "rb") as f:
+            resp_0x = requests.post(
+                "https://0x0.st",
+                files={"file": (nome_arquivo, f, mime_type)},
+                timeout=120
+            )
+        if resp_0x.status_code == 200 and resp_0x.text.strip().startswith("http"):
+            return resp_0x.text.strip()
+    except Exception as e:
+        print(f"  [-] 0x0 falhou ({e}). Tentando tmpfiles.org...")
+
+    # Uploader 3: tmpfiles.org
+    try:
+        with open(caminho_local, "rb") as f:
+            resp_tmp = requests.post(
+                "https://tmpfiles.org/api/v1/upload",
+                files={"file": (nome_arquivo, f, mime_type)},
+                timeout=120
+            )
+        if resp_tmp.status_code == 200:
+            url_tmp = resp_tmp.json().get("data", {}).get("url", "")
+            if url_tmp and "tmpfiles.org/" in url_tmp:
+                direct_url = url_tmp.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+                return direct_url
+    except Exception as e:
+        print(f"  [-] tmpfiles falhou ({e})")
+
+    raise RuntimeError("Não foi possível gerar URL pública direta para o vídeo.")
+
 # ============================================================
 # INSTAGRAM REELS (API Oficial Meta / Instagram Graph API)
 # ============================================================
 def postar_instagram_reels(video_path: str, caption: str):
     """
     Publica um vídeo no Instagram Reels utilizando a API Oficial da Meta (Instagram Graph API).
-    Suporta upload direto de arquivos locais através do protocolo Resumable Upload da Meta.
+    Utiliza URL pública direta para processamento assíncrono pela infraestrutura da Meta.
     Possui trava anti-duplicidade estrita baseada em hash SHA-256 e nome de arquivo.
     """
     print("  -> A publicar no Instagram Reels (API Oficial Meta)...")
@@ -126,59 +190,46 @@ def postar_instagram_reels(video_path: str, caption: str):
         print(f"  [-] {msg_skip}")
         return {"status": "SKIPPED", "motivo": msg_skip}
     
-    file_size = validar_video_para_publicacao(video_path)
+    validar_video_para_publicacao(video_path)
     
-    access_token = os.getenv("INSTAGRAM_ACCESS_TOKEN")
-    account_id = os.getenv("INSTAGRAM_ACCOUNT_ID", "17841441761053564")
+    load_dotenv(os.path.join(ROOT_DIR, ".env"), override=True)
+    access_token = os.getenv("INSTAGRAM_ACCESS_TOKEN", "").strip()
+    account_id = os.getenv("INSTAGRAM_ACCOUNT_ID", "17841441761053564").strip()
     
     if not access_token:
         raise ValueError("INSTAGRAM_ACCESS_TOKEN não foi configurado no arquivo .env. Insira seu token de acesso da Meta.")
     if not account_id:
         raise ValueError("INSTAGRAM_ACCOUNT_ID não foi configurado no arquivo .env.")
 
-    graph_version = "v21.0"
+    graph_version = os.getenv("META_GRAPH_API_VERSION", "v21.0").strip()
     base_url = f"https://graph.facebook.com/{graph_version}"
     
-    # 1. Iniciar a sessão de upload resumable (criar o container do Reel)
-    print("  [*] Passo 1: Inicializando container de mídia na Meta...")
-    endpoint_init = f"{base_url}/{account_id}/media"
-    payload_init = {
+    # 1. Resolver URL pública para o vídeo
+    print("  [*] Passo 1: Resolvendo URL pública acessível para a Meta...")
+    public_url = resolver_url_publica(video_path)
+    print(f"  [+] URL Pública obtida: {public_url}")
+    
+    # 2. Criar container do Reel
+    print("  [*] Passo 2: Criando container de Reels na Meta...")
+    endpoint_media = f"{base_url}/{account_id}/media"
+    payload_media = {
         "media_type": "REELS",
-        "upload_type": "resumable",
+        "video_url": public_url,
         "caption": caption,
         "share_to_feed": True,
         "access_token": access_token
     }
     
-    resp_init = requests.post(endpoint_init, json=payload_init)
-    dados_init = resp_init.json()
+    resp_media = requests.post(endpoint_media, json=payload_media, timeout=40)
+    dados_media = resp_media.json()
     
-    if resp_init.status_code != 200 or "id" not in dados_init:
-        raise Exception(f"Erro ao inicializar container do Reels: {dados_init.get('error', {}).get('message', dados_init)}")
+    if resp_media.status_code != 200 or "id" not in dados_media:
+        raise Exception(f"Erro ao inicializar container do Reels: {dados_media.get('error', {}).get('message', dados_media)}")
         
-    creation_id = dados_init["id"]
-    upload_uri = dados_init.get("uri")
+    creation_id = dados_media["id"]
     print(f"  [+] Container criado com sucesso! ID: {creation_id}")
     
-    # 2. Upload binário dos bytes do vídeo para a URI fornecida pela Meta
-    print(f"  [*] Passo 2: Enviando arquivo de vídeo ({file_size} bytes) via Resumable Upload...")
-    headers_upload = {
-        "Authorization": f"OAuth {access_token}",
-        "offset": "0",
-        "file_size": str(file_size)
-    }
-    
-    with open(video_path, "rb") as f:
-        video_bytes = f.read()
-        
-    resp_upload = requests.post(upload_uri, headers=headers_upload, data=video_bytes)
-    
-    if resp_upload.status_code not in [200, 201]:
-        raise Exception(f"Erro no envio binário do vídeo para a Meta: {resp_upload.status_code} - {resp_upload.text}")
-        
-    print("  [+] Upload binário concluído com sucesso!")
-    
-    # 3. Aguardar processamento do vídeo pela Meta (Polling)
+    # 3. Aguardar codificação do Reel pelos servidores da Meta (Polling)
     print("  [*] Passo 3: Aguardando codificação do Reel pelos servidores da Meta...")
     endpoint_status = f"{base_url}/{creation_id}"
     params_status = {
@@ -186,11 +237,11 @@ def postar_instagram_reels(video_path: str, caption: str):
         "access_token": access_token
     }
     
-    tentativas = 30
+    tentativas = 40
     processado = False
-    for _ in range(tentativas):
+    for i in range(tentativas):
         time.sleep(5)
-        resp_check = requests.get(endpoint_status, params=params_status)
+        resp_check = requests.get(endpoint_status, params=params_status, timeout=20)
         dados_check = resp_check.json()
         status_code = dados_check.get("status_code")
         
@@ -198,10 +249,10 @@ def postar_instagram_reels(video_path: str, caption: str):
             processado = True
             print("  [+] Vídeo processado e pronto para publicação!")
             break
-        elif status_code == "ERROR":
-            raise Exception(f"A Meta encontrou um erro ao processar o vídeo: {dados_check}")
+        elif status_code in ["ERROR", "EXPIRED"]:
+            raise Exception(f"A Meta encontrou um erro ao processar o vídeo ({status_code}): {dados_check}")
         else:
-            print(f"  ... Em processamento ({status_code}). Aguardando 5s...")
+            print(f"  ... Em processamento ({status_code or 'PENDING'}). Tentativa {i+1}/{tentativas}. Aguardando 5s...")
             
     if not processado:
         raise TimeoutError("Tempo limite esgotado enquanto aguardava processamento do Reel pela Meta.")
@@ -214,18 +265,34 @@ def postar_instagram_reels(video_path: str, caption: str):
         "access_token": access_token
     }
     
-    resp_publish = requests.post(endpoint_publish, json=payload_publish)
+    resp_publish = requests.post(endpoint_publish, json=payload_publish, timeout=40)
     dados_publish = resp_publish.json()
     
-    if resp_publish.status_code != 200 or "id" not in dados_publish:
-        raise Exception(f"Erro ao publicar o Reel: {dados_publish.get('error', {}).get('message', dados_publish)}")
+    media_id = None
+    if resp_publish.status_code == 200 and "id" in dados_publish:
+        media_id = dados_publish["id"]
+    else:
+        # Fallback de verificação se o post foi publicado em segundo plano
+        time.sleep(4)
+        r_rec = requests.get(
+            f"{base_url}/{account_id}/media",
+            params={"fields": "id,permalink,caption,timestamp", "limit": 2, "access_token": access_token},
+            timeout=20
+        )
+        d_rec = r_rec.json().get("data", [])
+        if d_rec and d_rec[0].get("caption", "")[:20] == (caption or "")[:20]:
+            media_id = d_rec[0]["id"]
+        else:
+            raise Exception(f"Erro ao publicar o Reel: {dados_publish.get('error', {}).get('message', dados_publish)}")
         
-    media_id = dados_publish["id"]
-    
     # 5. Obter permalink público do Reel publicado
     link_instagram = f"https://www.instagram.com/reel/{media_id}/"
     try:
-        resp_permalink = requests.get(f"{base_url}/{media_id}", params={"fields": "permalink", "access_token": access_token})
+        resp_permalink = requests.get(
+            f"{base_url}/{media_id}",
+            params={"fields": "permalink,shortcode", "access_token": access_token},
+            timeout=15
+        )
         if resp_permalink.status_code == 200 and "permalink" in resp_permalink.json():
             link_instagram = resp_permalink.json()["permalink"]
     except Exception:
