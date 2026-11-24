@@ -1,0 +1,11 @@
+[Unit]
+Description=Timer Diario do Umlapso Bot - Video Longo 16:9 (18:15)
+RefuseManualStart=no
+RefuseManualStop=no
+
+[Timer]
+OnCalendar=*-*-* 18:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

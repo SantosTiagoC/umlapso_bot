@@ -1,0 +1,17 @@
+[Unit]
+Description=Umlapso Bot - Gerador e Publicador de Videos Longos (16:9 YouTube)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/home/umlapso_bot
+EnvironmentFile=/home/umlapso_bot/.env
+ExecStart=/usr/bin/xvfb-run -a /home/umlapso_bot/venv/bin/python /home/umlapso_bot/gerar_video_longo.py --auto
+StandardOutput=append:/home/umlapso_bot/logs/umlapso_longo.log
+StandardError=append:/home/umlapso_bot/logs/umlapso_longo.log
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

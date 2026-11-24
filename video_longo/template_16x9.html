@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    background: #04060c;
+    font-family: sans-serif;
+    position: relative;
+  }
+
+  /* Contêiner das Camadas de Cena 16:9 */
+  .scenes-container {
+    position: absolute;
+    inset: -50px;
+    overflow: hidden;
+    z-index: 2;
+  }
+
+  /* Camada individual de cada cena */
+  .scene-layer {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    pointer-events: none;
+    will-change: opacity;
+  }
+
+  .bg-photo {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform-origin: center center;
+    will-change: transform;
+    filter: contrast(1.07) saturate(1.14) brightness(0.97);
+  }
+
+  /* Degradê atmosférico sutil no topo e base para composição 16:9 */
+  .bg-photo-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      rgba(3, 5, 12, 0.48) 0%,
+      rgba(3, 5, 12, 0.12) 18%,
+      transparent 30%,
+      transparent 70%,
+      rgba(3, 5, 12, 0.18) 82%,
+      rgba(3, 5, 12, 0.60) 100%
+    );
+    pointer-events: none;
+    z-index: 8;
+  }
+
+  /* Vinheta escura cinematográfica para tela horizontal */
+  .vignette-cinematic {
+    position: absolute;
+    inset: 0;
+    box-shadow: inset 0 0 160px rgba(0, 0, 0, 0.82), inset 0 0 320px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+    z-index: 9;
+  }
+
+  /* Partículas cósmicas horizontais */
+  .particles-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 10;
+  }
+  .particle {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(147, 197, 253, 0.40) 0%, rgba(147, 197, 253, 0) 70%);
+    opacity: 0.22;
+    pointer-events: none;
+  }
+  .p1 { width: 180px; height: 180px; top: 15%; left: 12%; }
+  .p2 { width: 220px; height: 220px; top: 60%; right: 10%; }
+  .p3 { width: 140px; height: 140px; bottom: 20%; left: 45%; }
+</style>
+</head>
+<body>
+  <!-- Contêiner dinâmico com camadas de cenas 16:9 pré-carregadas -->
+  <div id="scenes-container" class="scenes-container"></div>
+
+  <!-- Camadas cinematográficas de overlay e vinheta widescreen -->
+  <div class="bg-photo-overlay"></div>
+  <div class="vignette-cinematic"></div>
+
+  <!-- Partículas cósmicas suaves -->
+  <div class="particles-layer">
+    <div class="particle p1" id="p1"></div>
+    <div class="particle p2" id="p2"></div>
+    <div class="particle p3" id="p3"></div>
+  </div>
+
+<script>
+  let TIMELINE = null;
+  const CROSSFADE_MS = 600; // 0.6s de crossfade suave e cinematográfico
+
+  window.initTimeline = function(data) {
+    TIMELINE = data;
+    const container = document.getElementById('scenes-container');
+    container.innerHTML = '';
+
+    const cenas = data.cenas || [];
+    cenas.forEach((cena, i) => {
+      const layer = document.createElement('div');
+      layer.className = 'scene-layer';
+      layer.id = 'scene-layer-' + i;
+      layer.style.zIndex = i + 1;
+      layer.style.opacity = (i === 0) ? '1' : '0';
+
+      const img = document.createElement('img');
+      img.className = 'bg-photo';
+      img.id = 'scene-img-' + i;
+      if (cena.bg_image) {
+        img.src = cena.bg_image;
+      }
+      layer.appendChild(img);
+      container.appendChild(layer);
+    });
+  };
+
+  window.renderAtTime = function(ms) {
+    if (!TIMELINE) return;
+
+    // Movimento orgânico lento das partículas
+    const p1 = document.getElementById('p1');
+    const p2 = document.getElementById('p2');
+    const p3 = document.getElementById('p3');
+    if (p1) p1.style.transform = `translate(${Math.sin(ms / 3200) * 35}px, ${Math.cos(ms / 2700) * 25}px)`;
+    if (p2) p2.style.transform = `translate(${Math.cos(ms / 3500) * 30}px, ${Math.sin(ms / 2900) * 28}px)`;
+    if (p3) p3.style.transform = `translate(${Math.sin(ms / 2800) * 25}px, ${Math.cos(ms / 3300) * 22}px)`;
+
+    const cenas = TIMELINE.cenas || [];
+    if (cenas.length === 0) return;
+
+    // Busca a cena ativa para o timestamp ms
+    let idx = 0;
+    for (let i = 0; i < cenas.length; i++) {
+      if (ms >= cenas[i].inicio_ms && ms < cenas[i].fim_ms) {
+        idx = i;
+        break;
+      }
+      if (i === cenas.length - 1 && ms >= cenas[i].fim_ms) {
+        idx = i;
+      }
+    }
+
+    const cena = cenas[idx];
+    const sceneDur = Math.max(1, cena.fim_ms - cena.inicio_ms);
+    const timeInScene = Math.max(0, ms - cena.inicio_ms);
+    const t = Math.min(1, Math.max(0, timeInScene / sceneDur));
+
+    // Ken Burns lento, majestoso e cinematográfico (1.00 <-> 1.10 com pan suave)
+    const isEven = (idx % 2 === 0);
+    const scale = isEven ? (1.00 + (t * 0.10)) : (1.10 - (t * 0.10));
+    const panX = isEven ? ((t - 0.5) * 26) : ((t - 0.5) * -26);
+    const panY = isEven ? ((t - 0.5) * -14) : ((t - 0.5) * 14);
+
+    const activeImg = document.getElementById('scene-img-' + idx);
+    if (activeImg) {
+      activeImg.style.transform = `scale(${scale.toFixed(4)}) translate(${panX.toFixed(1)}px, ${panY.toFixed(1)}px)`;
+    }
+
+    // Crossfade suave de 0.6s (600ms) nas viradas de cena
+    const totalCenas = cenas.length;
+    for (let j = 0; j < totalCenas; j++) {
+      const layerEl = document.getElementById('scene-layer-' + j);
+      if (!layerEl) continue;
+
+      if (j === idx) {
+        if (idx > 0 && timeInScene < CROSSFADE_MS) {
+          const opacityIn = (timeInScene / CROSSFADE_MS).toFixed(3);
+          layerEl.style.opacity = opacityIn;
+        } else {
+          layerEl.style.opacity = '1';
+        }
+      } else if (j === idx - 1 && timeInScene < CROSSFADE_MS) {
+        const opacityOut = (1 - (timeInScene / CROSSFADE_MS)).toFixed(3);
+        layerEl.style.opacity = opacityOut;
+      } else {
+        layerEl.style.opacity = '0';
+      }
+    }
+  };
+</script>
+</body>
+</html>
