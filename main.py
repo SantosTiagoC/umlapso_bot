@@ -4,6 +4,7 @@ import json
 import time
 import argparse
 import subprocess
+import shutil
 
 from core.brain_openai import gerar_pauta_umlapso, gerar_metadados_video, gerar_novo_tema_inedito
 from core.voice_tts import gerar_audio_tts
@@ -50,10 +51,62 @@ def limpar_temporarios():
                 if os.path.isfile(caminho):
                     os.remove(caminho)
                 elif os.path.isdir(caminho) and not item.startswith("."):
-                    import shutil
                     shutil.rmtree(caminho, ignore_errors=True)
             except Exception:
                 pass
+
+def limpar_arquivos_expirados(horas: int = 24):
+    """
+    Remove arquivos de saída e temporários mais antigos que o tempo estipulado (padrão 24h).
+    - Remove .mp4 e .json em output/ expirados.
+    - Remove pastas e arquivos residuais em temp/ expirados.
+    - Não toca em assets/, logs/, tokens, sessões ou registros de anti-duplicidade.
+    - Loga quantos arquivos e pastas foram removidos.
+    """
+    limite_segundos = horas * 3600
+    agora = time.time()
+    arquivos_removidos = 0
+    pastas_removidas = 0
+
+    # 1. Limpeza em output/ (.mp4 e .json expirados)
+    pasta_output = "output"
+    if os.path.exists(pasta_output):
+        for item in os.listdir(pasta_output):
+            ext = os.path.splitext(item)[1].lower()
+            if ext in [".mp4", ".json"]:
+                caminho = os.path.join(pasta_output, item)
+                try:
+                    if os.path.isfile(caminho):
+                        mtime = os.path.getmtime(caminho)
+                        if (agora - mtime) > limite_segundos:
+                            os.remove(caminho)
+                            arquivos_removidos += 1
+                except Exception as e:
+                    print(f"[-] Erro ao remover {caminho}: {e}")
+
+    # 2. Limpeza em temp/ (pastas e arquivos expirados)
+    pasta_temp = "temp"
+    if os.path.exists(pasta_temp):
+        for item in os.listdir(pasta_temp):
+            if item.startswith("."):
+                continue
+            caminho = os.path.join(pasta_temp, item)
+            try:
+                mtime = os.path.getmtime(caminho)
+                if (agora - mtime) > limite_segundos:
+                    if os.path.isfile(caminho):
+                        os.remove(caminho)
+                        arquivos_removidos += 1
+                    elif os.path.isdir(caminho):
+                        shutil.rmtree(caminho, ignore_errors=True)
+                        pastas_removidas += 1
+            except Exception as e:
+                print(f"[-] Erro ao remover {caminho}: {e}")
+
+    if arquivos_removidos > 0 or pastas_removidas > 0:
+        print(f"[*] Limpeza concluída: {arquivos_removidos} arquivo(s) e {pastas_removidas} pasta(s) expirados (> {horas}h) removidos.")
+    else:
+        print(f"[*] Limpeza de expirados (> {horas}h): nenhum item antigo a remover.")
 
 def extrair_cover_frame(video_path: str, output_image: str) -> bool:
     """Extrai o primeiro frame representativo do vídeo para cover e notificações."""
@@ -207,6 +260,7 @@ def rodar_pipeline_imagens(tema: str | None = None, sem_publicar: bool = False) 
         return resultado_execucao
     finally:
         limpar_temporarios()
+        limpar_arquivos_expirados(horas=24)
 
 def rodar_pipeline_veo(tema: str | None = None, pref_visual="veo", sem_publicar: bool = False) -> dict:
     """Pipeline legado usando Veo para geração de vídeos curtos."""
@@ -348,6 +402,7 @@ def rodar_pipeline_veo(tema: str | None = None, pref_visual="veo", sem_publicar:
         return resultado_execucao
     finally:
         limpar_temporarios()
+        limpar_arquivos_expirados(horas=24)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline Autônomo do Umlapso Bot")
