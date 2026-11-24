@@ -165,8 +165,7 @@ def postar_instagram_reels(video_path: str, caption: str):
     headers_upload = {
         "Authorization": f"OAuth {access_token}",
         "offset": "0",
-        "file_size": str(file_size),
-        "Content-Type": "application/octet-stream"
+        "file_size": str(file_size)
     }
     
     with open(video_path, "rb") as f:

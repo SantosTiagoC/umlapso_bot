@@ -13,6 +13,8 @@ import sys
 import json
 import subprocess
 import logging
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
@@ -98,7 +100,8 @@ def _mixar_audio_video(
             "-filter_complex", "[1:a]volume=1.0[a1];[2:a]volume=0.08[a2];[a1][a2]amix=inputs=2:duration=first[aout]",
             "-map", "0:v", "-map", "[aout]",
             "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+            "-movflags", "+faststart",
             caminho_saida_mp4
         ]
     else:
@@ -107,7 +110,8 @@ def _mixar_audio_video(
             "-i", video_sem_audio,
             "-i", caminho_audio_mp3,
             "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+            "-movflags", "+faststart",
             caminho_saida_mp4
         ]
 
@@ -120,7 +124,8 @@ def _mixar_audio_video(
             "-i", video_sem_audio,
             "-i", caminho_audio_mp3,
             "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+            "-movflags", "+faststart",
             caminho_saida_mp4
         ]
         subprocess.run(fallback_cmd, check=True)
@@ -142,14 +147,13 @@ def renderizar_video_imagens(
     # Validação e higienização estrita de mídias estáticas por cena
     cenas = timeline.get("cenas", [])
     ultima_img_valida = None
+    imagens_validas = 0
     for i, c in enumerate(cenas):
         bg = c.get("bg_image") or ""
         # Converte para caminho de arquivo se for URI file://
         caminho_disco = bg
-        if bg.startswith("file:///"):
-            caminho_disco = bg.replace("file:///", "").replace("/", os.sep)
-        elif bg.startswith("file://"):
-            caminho_disco = bg.replace("file://", "").replace("/", os.sep)
+        if bg.startswith("file://"):
+            caminho_disco = urllib.request.url2pathname(urllib.parse.urlparse(bg).path)
 
         # Se for um arquivo de vídeo ou extensão inválida, descarta
         ext = os.path.splitext(caminho_disco)[1].lower()
@@ -159,6 +163,7 @@ def renderizar_video_imagens(
             uri_valida = Path(os.path.abspath(caminho_disco)).resolve().as_uri()
             c["bg_image"] = uri_valida
             ultima_img_valida = uri_valida
+            imagens_validas += 1
             logger.info(f"  [✔] Cena {c.get('id', i+1):02d}: Imagem estática validada -> {os.path.basename(caminho_disco)}")
         else:
             if ultima_img_valida:
@@ -166,6 +171,9 @@ def renderizar_video_imagens(
                 c["bg_image"] = ultima_img_valida
             else:
                 c["bg_image"] = None
+
+    if imagens_validas == 0:
+        raise RuntimeError("Nenhuma imagem válida carregada para renderização — abortando para não publicar vídeo em branco.")
 
     duracao_ms = int(timeline.get("duracao_total_ms", 45000))
     total_frames = int((duracao_ms / 1000.0) * fps) + 1
@@ -197,7 +205,7 @@ def renderizar_video_imagens(
         browser = lancar_chromium_seguro(
             p,
             headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--allow-file-access-from-files"]
         )
         page = browser.new_page(viewport={"width": 1080, "height": 1920}, device_scale_factor=1)
         page.goto(template_uri)
