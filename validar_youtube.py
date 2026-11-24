@@ -8,7 +8,10 @@ from googleapiclient.discovery import build
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube"
+]
 root_dir = os.path.dirname(os.path.abspath(__file__))
 
 token_candidates = [

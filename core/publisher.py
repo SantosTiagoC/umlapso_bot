@@ -334,7 +334,10 @@ def postar_youtube_shorts(video_path: str, titulo: str, descricao: str, tags: li
     from google.auth.transport.requests import Request
     from google_auth_oauthlib.flow import InstalledAppFlow
 
-    SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+    SCOPES = [
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtube"
+    ]
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
     # Procura arquivo de credenciais OAuth
