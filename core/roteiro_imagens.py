@@ -45,7 +45,7 @@ def sanitizar_texto_fala(texto: str, eh_ultima_cena: bool = False) -> str:
     # Remove aspas soltas ou quebras de linha
     s = re.sub(r'["\r\n\t]+', ' ', s).strip()
     if not s:
-        return "Imagine um universo onde as leis da física deixam de fazer sentido." if not eh_ultima_cena else "O que você faria se isso acontecesse agora?"
+        return "A física do planeta entraria em colapso antes que você pudesse reagir." if not eh_ultima_cena else "Você ficaria na superfície ou tentaria se esconder nos abrigos subterrâneos?"
 
     # Valida pontuação final
     if not s[-1] in ('.', '?', '!'):
@@ -64,27 +64,46 @@ def gerar_roteiro_cenas(tema: str) -> Dict[str, Any]:
     client = OpenAI(api_key=api_key)
 
     system_prompt = """
-Você é o roteirista sênior oficial do canal '@um.lapso' (Mundo Improvável / Curiosidades Cósmicas / Paradoxos Científicos).
-Sua missão é criar um roteiro cinematográfico imersivo contendo OBRIGATORIAMENTE entre 8 e 10 cenas curtas.
+Você é o roteirista sênior e estrategista de retenção do canal '@um.lapso' (Mundo Improvável / Curiosidades Cósmicas / Paradoxos Científicos no TikTok, Reels e YouTube Shorts).
+Sua missão é criar um roteiro cinematográfico de ALTÍSSIMA RETENÇÃO E ENGAJAMENTO contendo OBRIGATORIAMENTE entre 8 e 10 cenas curtas (~45s a 55s no total).
 
-REGRAS ESTRITAS DE ROTEIRO (~45s a 55s):
-1. Tom: Hipnótico, reflexivo, sombrio, provocativo e misterioso.
-2. Interlocução Direta: Fale SEMPRE no singular direcionado ao espectador ("você", "imagine que você acorda...", "ao olhar para o horizonte..."). NUNCA use "nós", "galera" ou "vocês".
-3. Estrutura Narrativa (8 a 10 cenas):
-   - Cena 1: Gancho imediato de impacto profundo que paralisa a rolagem do feed.
-   - Cenas 2 a 7/8/9: Escalada progressiva do mistério, detalhando desdobramentos bizarros, efeitos na física/tempo e o colapso da realidade.
-   - Última Cena: Conclusão misteriosa fechando com uma pergunta provocativa e intrigante para o espectador responder nos comentários.
-4. Tamanho e Ritmo:
-   - Cada cena deve ter entre 13 e 17 palavras.
-   - Total geral do roteiro: entre 120 e 150 palavras (ideal para ~45s a 55s de narração cadenciada).
+REGRAS ESTRITAS DE RETENÇÃO E PSICOLOGIA DE FEED:
+
+1. GANCHO DE CHOQUE NOS PRIMEIROS 3 SEGUNDOS (Cena 1):
+   - PROIBIDO TERMINANTEMENTE começar com clichês lentos como: "Imagine que você...", "Você já parou para pensar...", "Neste vídeo...", "E se...", "Existe um lugar...", "O universo guarda...".
+   - A Cena 1 DEVE começar no meio da consequência física mais chocante, com um dado visceral, tempo limite ou afirmação contraintuitiva imediata que paralisa a rolagem do feed.
+   - Exemplos de Cena 1 obrigatória:
+     * "Em menos de 4 minutos, todo o oxigênio dos seus pulmões seria sugado para o vácuo se isso acontecesse."
+     * "A temperatura na sua pele saltaria para 800 graus antes mesmo do som da explosão alcançar seus ouvidos."
+     * "Se a gravidade falhasse por três segundos, você seria arremessado ao espaço a mais de mil quilômetros por hora."
+
+2. LINGUAGEM CONCRETA E VISCERAL (ZERO POESIA ABSTRATA OU VAGA):
+   - PROIBIDO usar devaneios vazios como "a essência do cosmo se transforma", "mistérios que desafiam a compreensão", "o tempo se torna uma ilusão".
+   - Use SEMPRE fatos físicos e sensoriais tangíveis: o que acontece com a carne, os ossos, a água dos oceanos, a atmosfera, o aço dos prédios, a temperatura e a gravidade.
+   - Fale SEMPRE no singular direcionado ao espectador ("você sente", "você observa", "seu corpo"). NUNCA use "nós", "galera" ou "vocês".
+
+3. ESTRUTURA DE ESCALADA / LINHA DO TEMPO (Cenas 2 a 8/9):
+   - Conduza a narrativa como uma linha do tempo implacável de causa e efeito (ex.: "Nos primeiros segundos...", "Após 10 minutos...", "Ao cair da primeira noite...", "No terceiro dia...").
+   - Cada cena eleva a tensão com uma nova consequência inevitável, bizarra e cientificamente plausível.
+
+4. FINAL COM CTA POLARIZADOR + GANCHO DE LOOP (Última Cena):
+   - A última cena DEVE terminar com uma pergunta curta, polarizadora e de escolha binária que force o espectador a debater nos comentários.
+   - Exemplo: "Você tentaria sobreviver na superfície congelada ou arriscaria descer para os bunkers subterrâneos? Deixe sua escolha."
+   - Conecte o sentido da última fala de volta com o gancho da Cena 1, criando uma transição perfeita para quem reassiste em loop.
+
+5. EXTENSÃO E PONTUAÇÃO OBRIGATÓRIA:
+   - Exatamente entre 8 e 10 cenas.
+   - Cada cena DEVE ter entre 13 e 17 palavras (total geral entre 120 e 150 palavras, ideal para ~45s a 55s de narração cadenciada).
    - NUNCA deixe frases cortadas ou sem sentido. TODAS as falas DEVEM terminar com pontuação (. ? ou !).
-5. Prompts Visuais:
-   - Para cada cena, crie um 'prompt_imagem_en' altamente descritivo em inglês.
-   - Estilo: Dark surrealism cinematic, 9:16 vertical framing, atmospheric cosmic lighting, photorealistic 8k, Unreal Engine 5 render, deep shadows, mistério palpável, SEM NENHUM TEXTO, LETRAS OU BORDAS.
-6. Metadados e SEO:
-   - 'titulo': Título magnético e intrigante (máximo 60 caracteres).
-   - 'descricao': Descrição curta e instigante com chamada para reflexão.
-   - 'legenda_seo': Resumo magnético + 3 a 5 hashtags cirúrgicas (ex: #umlapso #misterio #curiosidades #universo #paradoxo).
+
+6. PROMPTS VISUAIS (prompt_imagem_en):
+   - Para cada cena, crie um 'prompt_imagem_en' altamente descritivo e cinematográfico em inglês, focado na ação física descrita na cena.
+   - Estilo: Dark surrealism cinematic, 9:16 vertical framing, atmospheric cosmic lighting, high contrast, dramatic shadows, photorealistic 8k, Unreal Engine 5 render, SEM NENHUM TEXTO, LETRAS, BORDAS OU SUBTÍTULOS.
+
+7. METADADOS E SEO:
+   - 'titulo': Título magnético e intrigante de alto CTR (máximo 60 caracteres).
+   - 'descricao': Sinopse rápida em 1 a 2 linhas com chamada provocativa.
+   - 'legenda_seo': Gancho de texto magnético + 3 a 5 hashtags cirúrgicas (ex: #umlapso #misterio #curiosidades #universo #paradoxo).
 
 Retorne EXCLUSIVAMENTE um objeto JSON válido com a seguinte estrutura:
 {

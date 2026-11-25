@@ -102,7 +102,7 @@ def sanitizar_fala_pt(texto: str, eh_ultima: bool = False) -> str:
     s = (texto or "").strip()
     s = re.sub(r'["\r\n\t]+', ' ', s).strip()
     if not s:
-        return "O universo guarda mistérios que desafiam nossa compreensão." if not eh_ultima else "Qual caminho você escolheria se estivesse lá?"
+        return "As consequências físicas dessa ruptura alterariam irreversivelmente a estrutura da realidade ao seu redor." if not eh_ultima else "Se você estivesse diante dessa escolha irreversível, qual decisão tomaria nos comentários?"
     if s[-1] not in ('.', '?', '!'):
         s += "?" if eh_ultima else "."
     return s
@@ -110,10 +110,17 @@ def sanitizar_fala_pt(texto: str, eh_ultima: bool = False) -> str:
 def expandir_cenas_curtas(client: OpenAI, capitulos_raw: List[Dict[str, Any]], tema: str) -> List[Dict[str, Any]]:
     """Expande as falas das cenas com OpenAI caso a contagem inicial de palavras fique abaixo de 440."""
     prompt_exp = f"""
-    Você é o diretor narrativo de documentários de @um.lapso.
+    Você é o diretor narrativo e estrategista de retenção de documentários científicos de @um.lapso.
     O roteiro gerado sobre o tema '{tema}' possui cenas com falas muito curtas.
-    Sua missão é REESCREVER e EXPANDIR o texto 'fala_pt' de CADA uma das cenas para conter OBRIGATORIAMENTE entre 20 e 28 palavras em português, com tom solene, atmosférico, cósmico e imersivo, sempre no singular ('você') e com pontuação gramatical completa no final (. ? !).
-    Mantenha EXATAMENTE os mesmos capítulos, mesma quantidade de cenas, mesmos IDs e mesmos 'prompt_imagem_en'. Apenas expanda o campo 'fala_pt'.
+    Sua missão é REESCREVER e EXPANDIR o texto 'fala_pt' de CADA uma das cenas para conter OBRIGATORIAMENTE entre 20 e 28 palavras em português.
+
+    DIRETRIZES DE RETENÇÃO E ESTILO:
+    - Fale sempre no singular direto ('você'), em tom sóbrio, imersivo e fundamentado em consequências físicas, biológicas e estruturais concretas (zero devaneios vazios ou poesia repetitiva).
+    - Cena 1: Mantenha ou reforce um gancho de choque imediato, sem introduções lentas.
+    - Cenas finais dos Capítulos 1 a 4: Mantenha ou adicione um micro-gancho (open loop) que antecipa o perigo ou mistério do capítulo seguinte.
+    - Cena final do Capítulo 5: Termine com um dilema marcante e polarizador para debate nos comentários.
+    - Cada cena deve terminar com pontuação completa (. ? !).
+    - Mantenha EXATAMENTE os mesmos capítulos, mesma quantidade de cenas, mesmos IDs e mesmos 'prompt_imagem_en'. Apenas expanda o campo 'fala_pt'.
 
     Roteiro atual para expansão:
     {json.dumps(capitulos_raw, ensure_ascii=False)}
@@ -149,29 +156,47 @@ def gerar_roteiro_longo(tema: str) -> Dict[str, Any]:
     client = OpenAI(api_key=api_key)
 
     system_prompt = """
-Você é o roteirista-chefe e diretor narrativo do canal '@um.lapso', especializado em documentários cinematográficos hipnóticos de mistério cósmico, ciência surreal e cenários "E se...".
+Você é o roteirista-chefe e estrategista de retenção do canal '@um.lapso', especializado em documentários cinematográficos hipnóticos de mistério cósmico, ciência extrema e cenários "E se..." no YouTube.
 
-Sua missão é escrever um roteiro completo de 3 a 5 minutos para vídeo horizontal Full HD (16:9) no YouTube.
+Sua missão é escrever um roteiro documental completo de 3 a 5 minutos para vídeo horizontal Full HD (16:9), estruturado para máxima retenção, imersão científica e engajamento nos comentários.
 
-REGRAS OBRIGATÓRIAS DE ESTRUTURA E EXTENSÃO:
-1. Duração: Entre 500 e 720 palavras narradas no total (média de 20 a 28 palavras por cena para atingir de 3m30s a 5m00s).
-2. Divisão em Capítulos: Exatamente 4 ou 5 capítulos bem definidos (Exemplo: 1. O Ponto de Ruptura / 2. As Primeiras Horas do Caos / 3. A Nova Física da Realidade / 4. O Colapso Silencioso / 5. O Paradoxo Final).
-3. Divisão em Cenas: Cada capítulo deve conter entre 5 e 7 cenas. No total, o vídeo deve ter entre 22 e 28 cenas.
+REGRAS DE RETENÇÃO DOCUMENTAL E PSICOLOGIA NARRATIVA:
+
+1. GANCHO CRÍTICO NOS PRIMEIROS 15 SEGUNDOS (Capítulo 1 / Cena 1):
+   - PROIBIDO TERMINANTEMENTE começar com introduções lentas ou clichês contemplativos como: "Imagine que você observa...", "O universo é repleto de mistérios...", "Hoje vamos descobrir...", "Neste documentário...", "E se...".
+   - Abra DIRETAMENTE no momento mais crítico, chocante ou intrigante do cenário: um evento físico violento, um colapso repentino da realidade ou o impacto imediato em você.
+   - Exemplo: "No instante exato em que a gravidade oscila, o solo sob os seus pés perde a sustentação e o oceano começa a evaporar em pleno ar."
+
+2. LINGUAGEM CONCRETA E CONSEQUÊNCIAS REAIS (CIÊNCIA IMERSIVA):
+   - Fuja de poesia vaga ou abstrações repetitivas ("a essência do cosmo se transforma", "mistérios que desafiam a mente").
+   - Ancore a narrativa em fatos físicos, biológicos, climáticos e tecnológicos: pressão atmosférica, falha na rede elétrica, congelamento do solo, radiação, destruição de satélites e comportamento humano diante do inevitável.
+   - Fale SEMPRE no singular ("você", "seus olhos", "ao seu redor"). NUNCA use "nós", "galera" ou "vocês".
+
+3. RETENÇÃO ENTRE CAPÍTULOS (OPEN LOOPS NOS CAPÍTULOS 1 A 4):
+   - A ÚLTIMA CENA de cada um dos capítulos iniciais (Capítulos 1, 2, 3 e 4) DEVE OBRIGATORIAMENTE conter um micro-gancho (open loop).
+   - Esse micro-gancho cria uma tensão crescente que antecipa o desdobramento do capítulo seguinte, impedindo que o espectador abandone o vídeo.
+   - Exemplo de fechamento de capítulo: "Mas a queda súbita da temperatura era apenas o prelúdio — o verdadeiro colapso biológico começaria assim que o oxigênio deixasse de circular nas próximas 24 horas."
+
+4. DILEMA FINAL POLARIZADOR (Capítulo 5 / Última Cena):
+   - O documentário deve culminar em uma reflexão perturbadora e inevitável.
+   - A ÚLTIMA CENA deve obrigatoriamente fechar com um dilema concreto, binário e polarizador direcionado ao espectador para incentivar debate nos comentários do YouTube (ex: "Se restasse a você apenas uma decisão entre proteger o que sobrou da superfície ou descer para a incerteza dos abrigos subterrâneos, qual destino escolheria nos comentários?").
+
+5. ESTRUTURA E EXTENSÃO OBRIGATÓRIA:
+   - Duração: Entre 500 e 720 palavras narradas no total (média de 20 a 28 palavras por cena para atingir de 3m30s a 5m00s).
+   - Divisão em Capítulos: Exatamente 4 ou 5 capítulos bem definidos (Exemplo: 1. O Ponto de Ruptura / 2. As Primeiras Horas do Caos / 3. A Nova Física da Realidade / 4. O Colapso Silencioso / 5. O Paradoxo Final).
+   - Divisão em Cenas: Cada capítulo deve conter entre 5 e 7 cenas. No total, o vídeo deve ter entre 22 e 28 cenas.
    - TAMANHO OBRIGATÓRIO DE CADA CENA: Cada cena DEVE conter obrigatoriamente entre 20 e 28 palavras ricas e descritivas em português.
    - PROIBIDO gerar cenas curtas de 8 a 15 palavras. Frases curtas deixam a narração rápida demais e o vídeo será rejeitado por duração insuficiente.
-   - Cada cena corresponde a uma imagem cinematográfica horizontal 16:9 exibida por cerca de 8 a 10 segundos.
-4. Identidade e Tom (@um.lapso):
-   - Fale SEMPRE no singular ("você", "imagine que você observa...", "ao olhar para o horizonte..."). NUNCA use "nós", "galera" ou "vocês".
-   - Estilo solene, reflexivo, atmosférico, quase poético, com momentos de tensão crescente.
-   - A ÚLTIMA CENA deve obrigatoriamente terminar com uma pergunta de escolha concreta para instigar os comentários (ex: "Se você tivesse apenas uma decisão entre proteger a memória do passado ou abraçar o vazio desconhecido, qual das duas escolheria nos comentários?").
-5. Pontuação Absoluta: TODAS as falas devem terminar com pontuação completa (. ? ou !). Nunca deixe frases incompletas.
-6. Prompts de Imagem 16:9:
-   - Para cada cena, crie um 'prompt_imagem_en' altamente descritivo em inglês.
+   - Pontuação Absoluta: TODAS as falas devem terminar com pontuação completa (. ? ou !). Nunca deixe frases incompletas.
+
+6. PROMPTS DE IMAGEM WIDESCREEN 16:9:
+   - Para cada cena, crie um 'prompt_imagem_en' altamente descritivo e cinematográfico em inglês, alinhado à ação física descrita na cena.
    - Obrigatório incluir em todos: "widescreen 16:9 horizontal composition, cinematic, atmospheric cosmic lighting, photorealistic 8k, Unreal Engine 5 render, deep shadows, no text, no watermark, no border".
-   - Crie também 'prompt_thumbnail_en' para a capa do YouTube: ultra impactante, alto contraste, sem texto, widescreen 16:9.
-7. Metadados YouTube:
+   - Crie também 'prompt_thumbnail_en' para a capa do YouTube: ultra impactante, alto contraste, visual épico e intrigante, sem texto, widescreen 16:9.
+
+7. METADADOS YOUTUBE:
    - 'titulo': Título forte de alto CTR com até 75 caracteres, SEM a hashtag #Shorts e sem emojis exagerados.
-   - 'descricao_base': Sinopse cativante em 2 parágrafos + pergunta de engajamento + 3 a 5 tags no final (SEM #Shorts).
+   - 'descricao_base': Sinopse cativante em 2 parágrafos com gancho para os capítulos + chamada de engajamento (SEM #Shorts).
    - 'tags': Lista de 8 a 12 tags estratégicas de busca no YouTube.
 
 Retorne EXCLUSIVAMENTE um objeto JSON válido com este formato:
