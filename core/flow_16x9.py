@@ -347,8 +347,28 @@ class Flow16x9Client:
                         except Exception:
                             pass
 
-                        # Validação SHA-256 anti-duplicação
+                        # Validação SHA-256 anti-duplicação e integridade da imagem
                         if salvo and os.path.exists(output_path) and os.path.getsize(output_path) > 25000:
+                            # Valida se o arquivo baixado é uma imagem real legível
+                            try:
+                                with Image.open(output_path) as im:
+                                    im.verify()
+                                with Image.open(output_path) as im:
+                                    w_img, h_img = im.size
+                                    if w_img < 640 or h_img < 360:
+                                        logger.warning(f"  [!] Imagem com dimensões insuficientes ({w_img}x{h_img}). Rejeitando.")
+                                        salvo = False
+                            except Exception as e_pil:
+                                logger.warning(f"  [!] Arquivo baixado não é uma imagem válida ({e_pil}). Rejeitando.")
+                                salvo = False
+
+                            if not salvo:
+                                try:
+                                    os.remove(output_path)
+                                except Exception:
+                                    pass
+                                return None
+
                             sha = calcular_sha256(output_path)
                             if sha in self.hashes_baixados_sessao:
                                 logger.warning(f"  [!] Alerta: Imagem repetida detectada (SHA-256 {sha[:8]}). Rejeitando.")
@@ -363,7 +383,7 @@ class Flow16x9Client:
                                 self.urls_baixadas_sessao.add(src_alvo)
 
                             tamanho_kb = os.path.getsize(output_path) / 1024
-                            logger.info(f"  [+] Imagem 16:9 salva: {os.path.basename(output_path)} | {tamanho_kb:.1f} KB | SHA-256: {sha[:8]}")
+                            logger.info(f"  [+] Imagem 16:9 salva e validada: {os.path.basename(output_path)} | {tamanho_kb:.1f} KB | {w_img}x{h_img} | SHA-256: {sha[:8]}")
                             return output_path
 
                         return None

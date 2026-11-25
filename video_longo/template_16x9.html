@@ -106,28 +106,50 @@
   let TIMELINE = null;
   const CROSSFADE_MS = 600; // 0.6s de crossfade suave e cinematográfico
 
-  window.initTimeline = function(data) {
+  window.initTimeline = async function(data) {
     TIMELINE = data;
     const container = document.getElementById('scenes-container');
     container.innerHTML = '';
 
     const cenas = data.cenas || [];
-    cenas.forEach((cena, i) => {
-      const layer = document.createElement('div');
-      layer.className = 'scene-layer';
-      layer.id = 'scene-layer-' + i;
-      layer.style.zIndex = i + 1;
-      layer.style.opacity = (i === 0) ? '1' : '0';
+    let loadedCount = 0;
+    let failedCount = 0;
 
-      const img = document.createElement('img');
-      img.className = 'bg-photo';
-      img.id = 'scene-img-' + i;
-      if (cena.bg_image) {
-        img.src = cena.bg_image;
-      }
-      layer.appendChild(img);
-      container.appendChild(layer);
+    const loadPromises = cenas.map((cena, i) => {
+      return new Promise((resolve) => {
+        const layer = document.createElement('div');
+        layer.className = 'scene-layer';
+        layer.id = 'scene-layer-' + i;
+        layer.style.zIndex = i + 1;
+        layer.style.opacity = (i === 0) ? '1' : '0';
+
+        const img = document.createElement('img');
+        img.className = 'bg-photo';
+        img.id = 'scene-img-' + i;
+
+        if (cena.bg_image) {
+          img.onload = () => {
+            loadedCount++;
+            resolve({ id: i, ok: true });
+          };
+          img.onerror = () => {
+            console.error(`Erro ao carregar imagem da cena ${i}:`, cena.bg_image);
+            failedCount++;
+            resolve({ id: i, ok: false });
+          };
+          img.src = cena.bg_image;
+        } else {
+          failedCount++;
+          resolve({ id: i, ok: false });
+        }
+
+        layer.appendChild(img);
+        container.appendChild(layer);
+      });
     });
+
+    await Promise.all(loadPromises);
+    return { loadedCount, failedCount, total: cenas.length };
   };
 
   window.renderAtTime = function(ms) {

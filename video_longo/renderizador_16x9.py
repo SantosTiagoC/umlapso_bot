@@ -13,6 +13,8 @@ import sys
 import json
 import subprocess
 import logging
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
@@ -67,6 +69,29 @@ def auditar_video_longo(caminho_video: str, duracao_esperada_ms: int) -> Dict[st
     if largura != 1920 or altura != 1080:
         logger.warning(f"  [!] Resolução do vídeo ({largura}x{altura}) diferente do padrão 1920x1080.")
 
+    # Validação visual anti-tela-preta: extrai frame no segundo 1 para checagem
+    ffmpeg_bin = obter_caminho_ffmpeg()
+    frame_teste = caminho_video + ".audit_frame.jpg"
+    try:
+        cmd_frame = [
+            ffmpeg_bin, "-y", "-ss", "00:00:01",
+            "-i", caminho_video, "-vframes", "1",
+            "-q:v", "2", frame_teste
+        ]
+        res_f = subprocess.run(cmd_frame, capture_output=True, timeout=15)
+        if res_f.returncode == 0 and os.path.exists(frame_teste):
+            tam_frame = os.path.getsize(frame_teste)
+            if tam_frame < 12000:
+                logger.warning(f"  [!] Frame de auditoria suspeito (apenas {tam_frame} bytes). Possível tela preta.")
+            else:
+                logger.info(f"  [✔] Frame de auditoria validado: {tam_frame/1024:.1f} KB (imagem presente no vídeo).")
+            try:
+                os.remove(frame_teste)
+            except Exception:
+                pass
+    except Exception as e_f:
+        logger.warning(f"  [!] Não foi possível auditar frame visual: {e_f}")
+
     resultado = {
         "aprovado": True,
         "duracao_segundos": round(duracao_s, 2),
@@ -112,7 +137,8 @@ def _mixar_audio_video_longo(
             "-filter_complex", "[1:a]volume=1.0[a1];[2:a]volume=0.07[a2];[a1][a2]amix=inputs=2:duration=first[aout]",
             "-map", "0:v", "-map", "[aout]",
             "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+            "-movflags", "+faststart",
             caminho_saida_mp4
         ]
     else:
@@ -121,7 +147,8 @@ def _mixar_audio_video_longo(
             "-i", video_sem_audio,
             "-i", caminho_audio_mp3,
             "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+            "-movflags", "+faststart",
             caminho_saida_mp4
         ]
 
@@ -134,7 +161,8 @@ def _mixar_audio_video_longo(
             "-i", video_sem_audio,
             "-i", caminho_audio_mp3,
             "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+            "-movflags", "+faststart",
             caminho_saida_mp4
         ]
         subprocess.run(fallback_cmd, check=True)
@@ -155,13 +183,13 @@ def renderizar_video_longo_16x9(
     # Validação e higienização das imagens estáticas das cenas
     cenas = timeline.get("cenas", [])
     ultima_img_valida = None
+    imagens_validas = 0
     for i, c in enumerate(cenas):
         bg = c.get("bg_image") or ""
+        # Converte para caminho de arquivo se for URI file://
         caminho_disco = bg
-        if bg.startswith("file:///"):
-            caminho_disco = bg.replace("file:///", "").replace("/", os.sep)
-        elif bg.startswith("file://"):
-            caminho_disco = bg.replace("file://", "").replace("/", os.sep)
+        if bg.startswith("file://"):
+            caminho_disco = urllib.request.url2pathname(urllib.parse.urlparse(bg).path)
 
         ext = os.path.splitext(caminho_disco)[1].lower()
         eh_imagem = ext in [".jpg", ".jpeg", ".png", ".webp"]
@@ -170,11 +198,19 @@ def renderizar_video_longo_16x9(
             uri_valida = Path(os.path.abspath(caminho_disco)).resolve().as_uri()
             c["bg_image"] = uri_valida
             ultima_img_valida = uri_valida
+            imagens_validas += 1
+            logger.info(f"  [✔] Cena {c.get('id', i+1):02d}: Imagem estática validada -> {os.path.basename(caminho_disco)}")
         else:
             if ultima_img_valida:
+                logger.warning(f"  [!] Cena {c.get('id', i+1):02d}: Imagem inválida ({bg}). Usando imagem anterior.")
                 c["bg_image"] = ultima_img_valida
             else:
                 c["bg_image"] = None
+
+    if imagens_validas == 0:
+        raise RuntimeError("Nenhuma imagem válida carregada para renderização — abortando para não publicar vídeo em branco.")
+
+    logger.info(f"[*] Total de imagens 16:9 validadas: {imagens_validas}/{len(cenas)} cenas.")
 
     duracao_ms = int(timeline.get("duracao_total_ms", 180000))
     total_frames = int((duracao_ms / 1000.0) * fps) + 1
@@ -207,11 +243,18 @@ def renderizar_video_longo_16x9(
         browser = lancar_chromium_seguro(
             p,
             headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--allow-file-access-from-files"]
         )
         page = browser.new_page(viewport={"width": 1920, "height": 1080}, device_scale_factor=1)
         page.goto(template_uri)
-        page.evaluate("(data) => window.initTimeline(data)", timeline)
+        init_res = page.evaluate("(data) => window.initTimeline(data)", timeline)
+        logger.info(f"[*] Template HTML 16:9 inicializado: {init_res}")
+
+        if init_res and isinstance(init_res, dict) and init_res.get("loadedCount", 0) == 0:
+            browser.close()
+            ffmpeg_proc.stdin.close()
+            ffmpeg_proc.terminate()
+            raise RuntimeError("Nenhuma imagem carregada no template HTML do Chromium — abortando renderização.")
 
         # Renderiza frame a frame com intervalo de relatório a cada 15 segundos de vídeo
         report_step = fps * 15
@@ -229,7 +272,9 @@ def renderizar_video_longo_16x9(
         browser.close()
 
     ffmpeg_proc.stdin.close()
-    ffmpeg_proc.wait()
+    ret = ffmpeg_proc.wait()
+    if ret != 0:
+        raise RuntimeError(f"FFmpeg image2pipe encerrou com erro (código {ret}).")
 
     # Mixagem com o áudio masterizado
     logger.info("[*] Mixando vídeo Full HD com narração masterizada do documentário...")
