@@ -39,10 +39,10 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube"
 ]
 
-def obter_cliente_youtube() -> Any:
+def obter_cliente_youtube(forcar_reauth: bool = False) -> Any:
     """
     Obtém cliente autenticado do YouTube Data API v3.
-    Se o token for inválido para o escopo ampliado, abre autenticação no navegador para autorizar o canal.
+    Se o token for inválido para o escopo ampliado ou se forcar_reauth for True, abre autenticação no navegador para autorizar o canal.
     """
     token_candidates = [
         os.path.join(ROOT_DIR, "token_youtube.json"),
@@ -50,13 +50,30 @@ def obter_cliente_youtube() -> Any:
     ]
     token_file = next((tc for tc in token_candidates if os.path.exists(tc)), token_candidates[0])
 
+    if forcar_reauth and os.path.exists(token_file):
+        logger.info("[*] Removendo token salvo para forçar nova autenticação...")
+        try:
+            os.remove(token_file)
+        except Exception as e:
+            logger.warning(f"[!] Não foi possível remover {token_file}: {e}")
+
+    def _is_oauth_client_file(path: str) -> bool:
+        if not os.path.exists(path):
+            return False
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return "installed" in data or "web" in data
+        except Exception:
+            return False
+
     secrets_candidates = [
         os.path.join(ROOT_DIR, "client_secrets.json"),
         os.path.join(ROOT_DIR, "config", "client_secrets.json"),
         os.path.join(ROOT_DIR, "client_secret.json"),
         os.path.join(ROOT_DIR, "credenciais.json")
     ]
-    secrets_file = next((sc for sc in secrets_candidates if os.path.exists(sc)), None)
+    secrets_file = next((sc for sc in secrets_candidates if _is_oauth_client_file(sc)), None)
 
     creds = None
     if os.path.exists(token_file):
@@ -307,7 +324,8 @@ def executar_otimizacao_canal(
     aplicar: bool = False,
     limite: Optional[int] = None,
     nota_corte: int = 7,
-    video_id_especifico: Optional[str] = None
+    video_id_especifico: Optional[str] = None,
+    forcar_reauth: bool = False
 ):
     """Fluxo principal de auditoria e otimização dos vídeos do YouTube."""
     api_key_openai = os.getenv("OPENAI_API_KEY")
@@ -315,7 +333,7 @@ def executar_otimizacao_canal(
         raise RuntimeError("OPENAI_API_KEY ausente no arquivo .env.")
 
     client_ai = OpenAI(api_key=api_key_openai)
-    youtube = obter_cliente_youtube()
+    youtube = obter_cliente_youtube(forcar_reauth=forcar_reauth)
 
     print("\n" + "=" * 70)
     print("=== OTIMIZADOR DE TÍTULOS E DESCRIÇÕES DO YOUTUBE (@um.lapso) ===")
@@ -441,6 +459,7 @@ if __name__ == "__main__":
     parser.add_argument("--limite", type=int, default=None, help="Limite máximo de vídeos a processar")
     parser.add_argument("--nota-corte", type=int, default=7, help="Nota de corte (1 a 10): vídeos com nota <= nota_corte serão reescritos (padrão: 7)")
     parser.add_argument("--video-id", type=str, default=None, help="Processa apenas um vídeo específico pelo ID do YouTube")
+    parser.add_argument("--reauth", action="store_true", help="Força novo login no navegador para conectar a outro canal/conta")
 
     args = parser.parse_args()
 
@@ -450,5 +469,6 @@ if __name__ == "__main__":
         aplicar=modo_aplicar,
         limite=args.limite,
         nota_corte=args.nota_corte,
-        video_id_especifico=args.video_id
+        video_id_especifico=args.video_id,
+        forcar_reauth=args.reauth
     )
